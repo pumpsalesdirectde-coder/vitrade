@@ -74,6 +74,8 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
       if (maxUsers && auth.userCount(db) >= maxUsers) throw fail("Набор на тест закрыт: мест больше нет", 403);
       const id = auth.register(db, p);
       signups.set(ctx.meta.ip, [...recent, now]);
+      // Новичку сразу открываем виртуальный счёт, чтобы кабинет не был пустым.
+      if (!listAccounts(db).some((a) => a.ownerId === id)) insertAccount(db, newAccount(randomUUID(), id, "Основной счёт", "market", now, "bybit", "10000"));
       auth.recordLogin(db, id, String(p.email).trim().toLowerCase(), true, ctx.meta);
       ctx.setCookie = sessionCookie(auth.createSession(db, id, ctx.meta), 30 * 86400);
       return { ok: true };

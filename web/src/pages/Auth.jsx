@@ -38,13 +38,13 @@ export default function Auth({ firstRun, onDone }) {
             <li><b>Запас до ликвидации</b><span>видно у каждой позиции в реальном времени</span></li>
           </ul>
         </div>
-        <small className="muted">Данные хранятся на этом компьютере.</small>
+        <small className="muted">Торговля виртуальная: ордера на биржу не отправляются, деньги и ключи API не нужны.</small>
       </section>
 
       <section className="auth-main">
         <form className="auth-form" onSubmit={submit}>
-          <h2>{reg ? (firstRun ? "Создайте аккаунт владельца" : "Регистрация") : "Вход в кабинет"}</h2>
-          {firstRun && reg && <p className="muted">Первому аккаунту достанутся счета и боты, перенесённые из прежней версии VITrade.</p>}
+          <h2>{reg ? "Регистрация" : "Вход в кабинет"}</h2>
+          {reg && <p className="muted">После регистрации откроется кабинет с виртуальным счётом на 10 000 USDT.</p>}
           {reg && <label>Имя<input autoComplete="name" value={form.name} onChange={set("name")} required maxLength={64} /></label>}
           <label>Почта<input type="email" autoComplete="email" value={form.email} onChange={set("email")} required /></label>
           <label>Пароль<input type="password" autoComplete={reg ? "new-password" : "current-password"} value={form.password} onChange={set("password")} required minLength={reg ? 8 : 1} />
