@@ -1,0 +1,26 @@
+# Render Blueprint для публичного теста VITrade.
+# Платный план starter нужен, чтобы сервис не засыпал и чтобы подключить постоянный диск под SQLite.
+# Регион Frankfurt: публичный API Bybit отклоняет запросы с американских адресов.
+services:
+  - type: web
+    name: vitrade
+    runtime: node
+    plan: starter
+    region: frankfurt
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node server/main.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: VITRADE_HOST
+        value: 0.0.0.0
+      - key: VITRADE_DB
+        value: /var/data/vitrade.sqlite
+      - key: VITRADE_MAX_USERS
+        value: "100"
+    disk:
+      name: vitrade-data
+      mountPath: /var/data
+      sizeGB: 1

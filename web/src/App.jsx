@@ -1,0 +1,177 @@
+import { useEffect, useState } from "react";
+import { post, useAppState, useSession } from "./api.js";
+import { money, signed, tone } from "./format.js";
+import Brand from "./ui/Brand.jsx";
+import Icon from "./ui/Icon.jsx";
+import Auth from "./pages/Auth.jsx";
+import Overview from "./pages/Overview.jsx";
+import Bots from "./pages/Bots.jsx";
+import Trades from "./pages/Trades.jsx";
+import BotForm from "./pages/BotForm.jsx";
+import Screener from "./pages/Screener.jsx";
+import Stats from "./pages/Stats.jsx";
+import Exchanges from "./pages/Exchanges.jsx";
+import Profile from "./pages/Profile.jsx";
+import Security from "./pages/Security.jsx";
+import Guide from "./pages/Guide.jsx";
+
+const MENU = [
+  ["Торговля", [["overview", "Обзор"], ["screener", "Скринер"], ["bots", "Боты"], ["trades", "Сделки"], ["stats", "Статистика"]]],
+  ["Счета", [["exchanges", "Биржи и счета"]]],
+  ["Аккаунт", [["profile", "Профиль и настройки"], ["security", "Безопасность"]]],
+  ["Помощь", [["guide", "Гайд"]]],
+];
+const TITLES = Object.fromEntries(MENU.flatMap(([, items]) => items));
+// разделы, где показывается выбор счёта
+const ACCOUNT_PAGES = new Set(["overview", "bots", "trades", "stats", "new", "edit"]);
+
+function useHash() {
+  const read = () => (location.hash.replace(/^#\/?/, "") || "overview").split("/");
+  const [parts, setParts] = useState(read);
+  useEffect(() => {
+    const on = () => setParts(read());
+    addEventListener("hashchange", on);
+    return () => removeEventListener("hashchange", on);
+  }, []);
+  return parts;
+}
+
+const store = {
+  get: (k, d) => {
+    try {
+      return localStorage.getItem(k) ?? d;
+    } catch {
+      return d;
+    }
+  },
+  set: (k, v) => {
+    try {
+      localStorage.setItem(k, v);
+    } catch { /* без сохранения */ }
+  },
+};
+
+export function useTheme() {
+  const [theme, setTheme] = useState(() => store.get("vt-theme", "dark"));
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    store.set("vt-theme", theme);
+  }, [theme]);
+  return [theme, setTheme];
+}
+
+function MarketStatus({ market }) {
+  const age = market?.at ? (Date.now() - market.at) / 1000 : Infinity;
+  const ok = market?.status === "connected" && age < 30;
+  return (
+    <span className={`market ${ok ? "ok" : "bad"}`} title={market?.message || ""}>
+      <i aria-hidden="true" />
+      {ok ? `Bybit · ${market.symbols} монет` : market?.status === "starting" ? "Подключение…" : "Нет данных рынка"}
+    </span>
+  );
+}
+
+export default function App() {
+  const [session, reloadSession] = useSession();
+  const [theme, setTheme] = useTheme();
+  const user = session?.user;
+  const { state, error, refresh } = useAppState(!!user);
+  const [page, ...rest] = useHash();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [accountId, setAccountId] = useState(() => store.get("vt-account", ""));
+
+  useEffect(() => setMenuOpen(false), [page]);
+
+  if (session === undefined) return <div className="splash"><Brand size={34} /></div>;
+  if (!user) return <Auth firstRun={session.firstRun} onDone={reloadSession} />;
+
+  const accounts = (state?.accounts || []).filter((a) => !a.archived);
+  const account = accounts.find((a) => a.id === accountId) || accounts[0];
+  const pick = (id) => {
+    setAccountId(id);
+    store.set("vt-account", id);
+  };
+  const logout = async () => {
+    await post("/api/auth/logout").catch(() => {});
+    reloadSession();
+  };
+  const current = page === "new" || page === "edit" ? "bots" : page;
+  const title = page === "new" ? "Новый бот" : page === "edit" ? "Настройки бота" : TITLES[page] || "Обзор";
+  const needsAccount = ACCOUNT_PAGES.has(page) || !TITLES[page];
+
+  let content;
+  if (!state) content = <p className="muted">Загрузка…</p>;
+  else if (needsAccount && !account) {
+    content = (
+      <div className="empty-state">
+        <h2>Откройте первый бумажный счёт</h2>
+        <p className="muted">На счёте живут боты и их сделки. Капитал виртуальный, цены — реальные с Bybit.</p>
+        <a className="btn primary" href="#/exchanges">Открыть счёт</a>
+      </div>
+    );
+  } else {
+    content = {
+      overview: <Overview account={account} />,
+      screener: <Screener state={state} />,
+      bots: <Bots account={account} refresh={refresh} />,
+      trades: <Trades account={account} />,
+      stats: <Stats account={account} accounts={accounts} />,
+      exchanges: <Exchanges state={state} refresh={refresh} onPick={pick} />,
+      profile: <Profile user={user} state={state} theme={theme} setTheme={setTheme} reload={reloadSession} />,
+      security: <Security />,
+      guide: <Guide topic={rest[0]} />,
+      new: <BotForm account={account} state={state} refresh={refresh} />,
+      edit: <BotForm account={account} state={state} botId={rest[0]} refresh={refresh} />,
+    }[page] || <Overview account={account} />;
+  }
+
+  return (
+    <div className={`shell ${menuOpen ? "menu-open" : ""}`}>
+      <aside className="sidebar">
+        <a className="side-brand" href="#/overview"><Brand /></a>
+        <nav aria-label="Разделы">
+          {MENU.map(([group, items]) => (
+            <div key={group} className="nav-group">
+              <span className="nav-label">{group}</span>
+              {items.map(([id, label]) => (
+                <a key={id} href={`#/${id}`} aria-current={current === id ? "page" : undefined}>
+                  <Icon name={id} />{label}
+                </a>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="side-user">
+          <span className="avatar" aria-hidden="true">{user.name.slice(0, 1).toUpperCase()}</span>
+          <span className="who"><b>{user.name}</b><small>{user.email}</small></span>
+          <button className="ghost icon" onClick={logout} title="Выйти"><Icon name="logout" /></button>
+        </div>
+      </aside>
+      <button className="scrim" aria-label="Закрыть меню" onClick={() => setMenuOpen(false)} />
+
+      <div className="workspace">
+        <header className="topbar">
+          <button className="ghost icon burger" onClick={() => setMenuOpen(true)} aria-label="Меню"><Icon name="menu" /></button>
+          <h1>{title}</h1>
+          {needsAccount && accounts.length > 0 && (
+            <label className="account-pick">
+              <span className="muted">Счёт</span>
+              <select value={account?.id} onChange={(e) => pick(e.target.value)}>
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              {account && <span className={`acc-net ${tone(account.net)}`}>{signed(account.net)}</span>}
+            </label>
+          )}
+          <div className="top-right">
+            <MarketStatus market={state?.market} />
+            <span className="paper" title="Все сделки виртуальные: реальные ордера не отправляются">Paper</span>
+          </div>
+        </header>
+        {error && <div className="banner">{error}</div>}
+        {needsAccount && account?.reserveShortfall && <div className="banner">На счёте не хватает свободных средств под бюджеты ботов — новые сделки и докупки остановлены.</div>}
+        <main>{content}</main>
+        {needsAccount && account && <footer className="foot">Капитал счёта «{account.name}»: <b>{money(account.equity)} USDT</b></footer>}
+      </div>
+    </div>
+  );
+}
