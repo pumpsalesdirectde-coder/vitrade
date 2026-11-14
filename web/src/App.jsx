@@ -95,6 +95,7 @@ export default function App() {
   const pick = (id) => {
     setAccountId(id);
     store.set("vt-account", id);
+    if (page === "fork" && id !== account?.id) location.hash = "#/fork";
   };
   const logout = async () => {
     await post("/api/auth/logout").catch(() => {});
@@ -119,7 +120,7 @@ export default function App() {
       overview: <Overview account={account} />,
       screener: <Screener state={state} />,
       bots: <Bots account={account} refresh={refresh} />,
-      fork: <Fork key={account?.id} account={account} state={state} botId={rest[0]} refresh={refresh} />,
+      fork: <Fork key={account?.id} account={account} accounts={accounts} onPick={pick} state={state} botId={rest[0]} refresh={refresh} />,
       trades: <Trades account={account} />,
       stats: <Stats account={account} accounts={accounts} />,
       exchanges: <Exchanges state={state} refresh={refresh} onPick={pick} />,

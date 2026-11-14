@@ -512,7 +512,7 @@ th .hint::after { top: calc(100% + 8px); bottom: auto; }
 .fork-page { gap: 24px; }
 .fork-intro { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
 .fork-intro p { max-width: 78ch; margin-top: 8px; font-size: .9rem; }
-.fork-pick { max-width: 440px; }
+.fork-selection { display: grid; gap: 12px; }
 .fork-layout { display: grid; }
 .fork-form > .form-actions { padding-top: 16px; }
 .fork-form fieldset > .notice { line-height: 1.5; }
@@ -542,7 +542,6 @@ th .hint::after { top: calc(100% + 8px); bottom: auto; }
 @media (max-width: 1200px) { .fork-pair-grid { grid-template-columns: 1fr; } }
 @media (max-width: 640px) {
   .fork-intro { flex-direction: column; }
-  .fork-pick { max-width: none; }
   .fork-total { align-items: flex-start; flex-direction: column; gap: 6px; }
   .fork-facts > div { flex-wrap: wrap; }
   .fork-facts dt { max-width: none; }
