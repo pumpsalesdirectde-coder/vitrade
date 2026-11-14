@@ -3,6 +3,7 @@ const P = {
   overview: "M3 11l7-7 7 7M5 9.5V17h4v-4h2v4h4V9.5",
   screener: "M3 4h14M5.5 9h9M8 14h4",
   bots: "M6 7h8a2 2 0 012 2v5a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2zM10 3v4M7.5 11.5h.01M12.5 11.5h.01",
+  fork: "M10 17v-6M10 11L5 6V3M10 11l5-5V3M3 5l2-2 2 2M13 5l2-2 2 2",
   trades: "M4 6h12M4 6l3-3M4 6l3 3M16 14H4M16 14l-3-3M16 14l-3 3",
   stats: "M4 16V9M8.5 16V5M13 16v-5M17 16H3",
   exchanges: "M3 8.5L10 4l7 4.5M5 9v6M10 9v6M15 9v6M3 16.5h14",
