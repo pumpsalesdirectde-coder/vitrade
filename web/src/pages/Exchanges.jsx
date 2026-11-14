@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { post } from "../api.js";
 import { money, signed, tone, when } from "../format.js";
+import Hint from "../ui/Hint.jsx";
 
 const EXCHANGES = [
   { id: "bybit", name: "Bybit", status: "ready", note: "Цены, свечи и фандинг USDT-перпетуалов подключены. Следующий шаг — Demo-счёт по API-ключу." },
@@ -24,8 +25,15 @@ function AccountRow({ a, refresh, onPick, setErr }) {
       setErr(`${a.name}: ${e.message}`);
     }
   };
+  // нажатие на счёт открывает его ботов
+  const open = () => {
+    if (a.archived || edit) return;
+    onPick(a.id);
+    location.hash = "#/bots";
+  };
+  const pnlPct = (Number(a.net) / Number(a.initial)) * 100;
   return (
-    <tr className={a.archived ? "archived" : ""}>
+    <tr className={a.archived ? "archived" : "clickable"} onClick={(e) => !e.target.closest("button, a, input, form") && open()}>
       <td>
         {edit ? (
           <form className="inline-form" onSubmit={(e) => { e.preventDefault(); act("rename", { name }); }}>
@@ -33,16 +41,18 @@ function AccountRow({ a, refresh, onPick, setErr }) {
             <button className="primary">Сохранить</button>
             <button type="button" className="ghost" onClick={() => setEdit(false)}>Отмена</button>
           </form>
-        ) : <><strong>{a.name}</strong>{a.archived && <span className="chip">в архиве</span>}<small className="sub muted">открыт {when(a.createdAt)}</small></>}
+        ) : <><button className="coin-link" onClick={open} disabled={a.archived} title="Открыть ботов этого счёта"><strong>{a.name}</strong></button>{a.archived && <span className="chip">в архиве</span>}<small className="sub muted">открыт {when(a.createdAt)}</small></>}
       </td>
       <td><span className="chip paper-chip">Paper</span></td>
       <td className="num">{money(a.equity)}</td>
-      <td className={`num ${tone(a.net)}`}>{signed(a.net)}</td>
+      <td className={`num ${tone(a.net)}`}><b>{signed(a.net)}</b></td>
+      <td className={`num ${tone(a.net)}`}>{signed(pnlPct, 2, "%")}</td>
+      <td className={`num ${tone(a.unrealized)}`}>{signed(a.unrealized)}</td>
       <td className="num">{a.bots.length}</td>
       <td className="num">{a.positions.length}</td>
       <td>
         <div className="row-actions">
-          {!a.archived && <a className="btn ghost" href="#/overview" onClick={() => onPick(a.id)}>Открыть</a>}
+          {!a.archived && <><a className="btn ghost" href="#/bots" onClick={() => onPick(a.id)}>Боты</a><a className="btn ghost" href="#/overview" onClick={() => onPick(a.id)}>Обзор</a></>}
           {!edit && <button className="ghost" onClick={() => setEdit(true)}>Переименовать</button>}
           {a.archived
             ? <button onClick={() => act("restore")}>Вернуть из архива</button>
@@ -102,7 +112,7 @@ export default function Exchanges({ state, refresh, onPick }) {
               {err && <div className="banner">{err}</div>}
               <div className="table-wrap">
                 <table className="grid-table">
-                  <thead><tr><th>Счёт</th><th>Режим</th><th className="num">Капитал</th><th className="num">С начала</th><th className="num">Ботов</th><th className="num">Позиций</th><th /></tr></thead>
+                  <thead><tr><th>Счёт</th><th>Режим</th><th className="num"><Hint term="equity">Капитал</Hint></th><th className="num"><Hint term="pnl">PnL</Hint></th><th className="num">PnL, %</th><th className="num"><Hint term="unrealized">Плавающий</Hint></th><th className="num">Ботов</th><th className="num">Позиций</th><th /></tr></thead>
                   <tbody>{state.accounts.map((a) => <AccountRow key={a.id} a={a} refresh={refresh} onPick={onPick} setErr={setErr} />)}</tbody>
                 </table>
               </div>

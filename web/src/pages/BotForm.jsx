@@ -40,6 +40,7 @@ const pickConfig = (c) => ({
   steps: Number(c.steps), spacingPct: String(c.spacingPct), tpPct: String(c.tpPct), slPct: String(c.slPct),
   feeRate: String(c.feeRate), slippageRate: String(c.slippageRate), marginAuto: !!c.marginAuto, marginCap: String(c.marginCap),
   exclusions: c.exclusions || [], stages: { ...c.stages },
+  guardOn: c.guardOn === true, guardStep: Number(c.guardStep ?? 3), guardPct: String(c.guardPct ?? "20"), guardMinutes: Number(c.guardMinutes ?? 60),
 });
 
 export default function BotForm({ account: a, state, botId, refresh }) {
@@ -148,6 +149,15 @@ export default function BotForm({ account: a, state, botId, refresh }) {
           <label className="check big-check"><input type="checkbox" checked={cfg.marginAuto} onChange={set("marginAuto")} />
             <span><b><Hint term="cushion">Подушка маржи</Hint></b> — если запас до ликвидации меньше 15%, бот добавит маржу со свободных средств, а при запасе больше 30% вернёт её. Рекомендуем держать включённой.</span></label>
           {cfg.marginAuto && <label className="inline"><Hint term="cushionCap">Не больше, $</Hint><input className="num" inputMode="decimal" value={cfg.marginCap} onChange={set("marginCap")} /></label>}
+          <label className="check big-check"><input type="checkbox" checked={cfg.guardOn} onChange={set("guardOn")} />
+            <span><b><Hint term="guard">Подстраховка от резкого движения</Hint></b> — начиная с выбранного шага сетки: если цена за короткое время резко ушла против позиции, бот перестаёт докупать и держит набранный объём. Тейк, стоп и подушка продолжают работать.</span></label>
+          {cfg.guardOn && (
+            <div className="fields three guard-fields">
+              <label>С шага<input type="number" min={1} max={cfg.steps} value={cfg.guardStep} onChange={set("guardStep")} /><small className="muted">проверка начинается после этого шага</small></label>
+              <label>Рост против позиции, %<input className="num" inputMode="decimal" value={cfg.guardPct} onChange={set("guardPct")} /><small className="muted">от лучшей цены за окно, включая цены докупок</small></label>
+              <label>За время, мин<input type="number" min={5} max={240} value={cfg.guardMinutes} onChange={set("guardMinutes")} /><small className="muted">окно наблюдения, 5–240 мин</small></label>
+            </div>
+          )}
           {!manual && <label>Не торговать монеты<input value={excl} onChange={(e) => setExcl(e.target.value)} placeholder="Например: JCT, ARIA" /></label>}
         </fieldset>
 

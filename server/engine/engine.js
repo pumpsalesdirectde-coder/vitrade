@@ -13,6 +13,9 @@ export const DEFAULT_CONFIG = {
   name: "Авто-бот", symbol: "BTCUSDT", mode: "auto", direction: "SHORT", budget: "500", leverage: 5, steps: 8,
   spacingPct: "4.5", tpPct: "1.25", slPct: "100", feeRate: "0.00055", slippageRate: "0.0002",
   marginAuto: true, marginCap: "100", exclusions: [],
+  // подстраховка: после шага guardStep, если цена за guardMinutes после последней докупки ушла против позиции
+  // на guardPct% и больше, бот перестаёт докупать и держит набранный объём
+  guardOn: true, guardStep: 3, guardPct: "20", guardMinutes: 60,
   stages: { RSI_SHORT: false, RSI_LONG: false, PUMP: false, EARLY: true, FLIP: true, DUMP: true, CRASH: false },
 };
 
@@ -178,6 +181,10 @@ export function advance(a, quotes, now) {
     const c = a.cycles.find((x) => x.id === b.currentCycleId);
     if (!c) {
       if (!b.enabled || b.paused || b.finish) continue;
+      if (a.walletBlocked) {
+        b.lastReason = "Кошелёк в минусе — пополните баланс, чтобы бот открывал новые сделки";
+        continue;
+      }
       if (a.fundingGaps.length || free(a).lt(0)) {
         b.lastReason = "Недостаточно резерва / сверка фандинга";
         continue;
@@ -232,7 +239,8 @@ export function advance(a, quotes, now) {
         b.pending = b.pending.filter((x) => x.id !== p.id);
       }
     }
-    if (c.status !== "OPEN" || b.paused || a.fundingGaps.length || free(a).lt(0)) continue;
+    guardCheck(a, b, c, q, now);
+    if (c.status !== "OPEN" || b.paused || c.dcaLocked || a.fundingGaps.length || free(a).lt(0)) continue;
     while (c.usedSteps < c.config.steps) {
       const boundary = gridPrice(c, c.usedSteps);
       if (c.direction === "LONG" ? D(q.mark).gt(boundary) : D(q.mark).lt(boundary)) break;
@@ -250,6 +258,32 @@ export function advance(a, quotes, now) {
     a.snapshots.push({ at: now, equity: str(equity) });
     if (a.snapshots.length > 17280) a.snapshots.shift();
   }
+}
+
+/**
+ * Подстраховка от резкого движения против позиции. Раз в минуту запоминаем цену; начиная с шага guardStep
+ * сравниваем текущую цену с самой выгодной для позиции ценой за последние guardMinutes (в неё входят и цены докупок).
+ * Если ушли против позиции на guardPct% и больше — докупки останавливаются, набранная позиция остаётся.
+ */
+function guardCheck(a, b, c, q, now) {
+  const g = c.config;
+  if (!g.guardOn || c.dcaLocked) return;
+  const win = g.guardMinutes * 6e4;
+  c.marks ||= [];
+  if (!c.marks.length || now - c.marks.at(-1)[0] >= 6e4) c.marks.push([now, q.mark]);
+  while (c.marks.length && now - c.marks[0][0] > win) c.marks.shift();
+  if (c.usedSteps < g.guardStep || c.usedSteps >= g.steps) return;
+  const short = c.direction === "SHORT";
+  const prices = [...c.marks.map((m) => Number(m[1])),
+    ...a.fills.filter((f) => f.cycleId === c.id && f.action === "increase" && now - f.at <= win).map((f) => Number(f.price))];
+  const ref = short ? Math.min(...prices) : Math.max(...prices);
+  if (!(ref > 0)) return;
+  const move = (Number(q.mark) / ref - 1) * 100 * (short ? 1 : -1);
+  if (move < Number(g.guardPct)) return;
+  c.dcaLocked = true;
+  c.dcaLockedAt = now;
+  b.lastReason = "Подстраховка: докупки остановлены";
+  event(a, "GUARD", `Подстраховка: цена ушла против позиции на ${move.toFixed(1)}% за ${g.guardMinutes} мин — докупки остановлены, позиция сохранена`, now, b, c, q.mark);
 }
 
 /** Цена шага сетки №step (0 — первый вход) от цены первого входа. */
@@ -298,6 +332,21 @@ export function validateConfig(input) {
     } catch {
       throw Error(`Некорректное значение ${key}`);
     }
+  }
+  // подстраховка: у старых ботов полей нет — считаем выключенной
+  c.guardOn = c.guardOn === true;
+  c.guardStep = c.guardStep === undefined ? 3 : c.guardStep;
+  c.guardPct = c.guardPct === undefined ? "20" : c.guardPct;
+  c.guardMinutes = c.guardMinutes === undefined ? 60 : c.guardMinutes;
+  if (!Number.isInteger(c.guardStep) || c.guardStep < 1 || c.guardStep > s1 || !Number.isInteger(c.guardMinutes) || c.guardMinutes < 5 || c.guardMinutes > 240) {
+    throw Error("Подстраховка: шаг 1–8, окно 5–240 минут");
+  }
+  try {
+    const gp = D(c.guardPct);
+    if (!gp.isFinite() || gp.lt(1) || gp.gt(500)) throw Error();
+    c.guardPct = str(gp);
+  } catch {
+    throw Error("Подстраховка: порог от 1 до 500%");
   }
   if (typeof c.marginAuto !== "boolean" || !Array.isArray(c.exclusions) || c.exclusions.length > 100
     || c.exclusions.some((s) => typeof s !== "string" || !SYMBOL.test(s))) {

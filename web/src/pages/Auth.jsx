@@ -2,8 +2,20 @@ import { useState } from "react";
 import { post } from "../api.js";
 import Brand from "../ui/Brand.jsx";
 
+// Код приглашения из ссылки ?ref=XXXX запоминаем, чтобы он не потерялся при переходах
+function refCode() {
+  const fromUrl = new URLSearchParams(location.search).get("ref");
+  try {
+    if (fromUrl) localStorage.setItem("mt-ref", fromUrl);
+    return fromUrl || localStorage.getItem("mt-ref") || "";
+  } catch {
+    return fromUrl || "";
+  }
+}
+
 export default function Auth({ firstRun, onDone }) {
-  const [mode, setMode] = useState(firstRun ? "register" : "login");
+  const [ref] = useState(refCode);
+  const [mode, setMode] = useState(firstRun || ref ? "register" : "login");
   const [form, setForm] = useState({ email: "", name: "", password: "", repeat: "" });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -16,7 +28,7 @@ export default function Auth({ firstRun, onDone }) {
     if (reg && form.password !== form.repeat) return setErr("Пароли не совпадают");
     setBusy(true);
     try {
-      await post(reg ? "/api/auth/register" : "/api/auth/login", form);
+      await post(reg ? "/api/auth/register" : "/api/auth/login", reg ? { ...form, ref } : form);
       onDone();
     } catch (x) {
       setErr(x.message);
@@ -44,7 +56,8 @@ export default function Auth({ firstRun, onDone }) {
       <section className="auth-main">
         <form className="auth-form" onSubmit={submit}>
           <h2>{reg ? "Регистрация" : "Вход в кабинет"}</h2>
-          {reg && <p className="muted">После регистрации откроется кабинет с виртуальным счётом на 10 000 USDT.</p>}
+          {reg && <p className="muted">После регистрации откроется кабинет с виртуальным счётом на 10 000 $.</p>}
+          {reg && ref && <p className="ref-note">Вы регистрируетесь по приглашению <b>{ref.toUpperCase()}</b></p>}
           {reg && <label>Имя<input autoComplete="name" value={form.name} onChange={set("name")} required maxLength={64} /></label>}
           <label>Почта<input type="email" autoComplete="email" value={form.email} onChange={set("email")} required /></label>
           <label>Пароль<input type="password" autoComplete={reg ? "new-password" : "current-password"} value={form.password} onChange={set("password")} required minLength={reg ? 8 : 1} />

@@ -7,7 +7,7 @@ import { useState } from "react";
 
 const EVENT = {
   FILL: "Сделка", MARGIN_ADD: "Подушка", MARGIN_RETURN: "Подушка", FUNDING: "Фандинг", COMMAND: "Команда",
-  BOT_CREATED: "Бот", CAPITAL: "Счёт", LIQUIDATION_TRIGGER: "Ликвидация",
+  BOT_CREATED: "Бот", CAPITAL: "Счёт", LIQUIDATION_TRIGGER: "Ликвидация", GUARD: "Подстраховка",
 };
 const COMMAND = { start: "Запуск", pause: "Пауза докупок", resume: "Докупки возобновлены", finish: "Довести и остановить", close: "Закрыть по рынку", add: "Ручная докупка", partial: "Частичная фиксация", update: "Настройки изменены" };
 
@@ -66,6 +66,7 @@ export default function Overview({ account: a }) {
                   <button className="coin-link" onClick={() => setChart(p)} title="Открыть график сделки"><strong>{coin(p.symbol)}</strong></button>
                   <span className={`side ${p.direction === "LONG" ? "long" : "short"}`}>{p.direction === "LONG" ? "Лонг" : "Шорт"} ×{p.config.leverage}</span>
                   <span className="muted">{bots[p.botId]?.config.name || "—"} · {entryLabel(p)}</span>
+                  {p.dcaLocked && <span className="chip warn-chip" title="Цена резко ушла против позиции — бот больше не докупает">подстраховка: докупки стоп</span>}
                 </div>
                 <dl className="pos-nums">
                   <div><dt>Цена</dt><dd>{price(p.mark)}</dd></div>
@@ -92,7 +93,7 @@ export default function Overview({ account: a }) {
                 {message(e)}
                 {e.botId && bots[e.botId] ? <span className="muted"> · {bots[e.botId].config.name}</span> : null}
               </span>
-              {e.amount && e.type !== "LIQUIDATION_TRIGGER" ? <Amount e={e} /> : <span />}
+              {e.amount && e.type !== "LIQUIDATION_TRIGGER" && e.type !== "GUARD" ? <Amount e={e} /> : <span />}
             </li>
           ))}
         </ol>

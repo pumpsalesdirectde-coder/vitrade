@@ -1,6 +1,7 @@
 // Фоновая работа: раз в секунду продвигает счета, раз в 5 секунд обновляет рынок.
 import { getValue, setValue, transaction } from "./db.js";
 import { advance, applyFunding } from "./engine/engine.js";
+import { bill, blockedUsers } from "./wallet.js";
 import { collectFunding, collectMarket, collectSignal, collectStage } from "./market/bybit.js";
 
 /** Фиксирует прошедшие моменты расчёта фандинга по монетам, чтобы потом подтянуть ставку. */
@@ -38,6 +39,10 @@ export function tickAccounts(db, now) {
   const due = recordSettlements(db, now, Object.values(quotes));
   const funding = getValue(db, "market:funding", []);
   let processed = 0;
+  let blocked = new Set();
+  try {
+    blocked = blockedUsers(db);
+  } catch { /* таблицы кошелька ещё нет — без блокировок */ }
   for (const { id } of db.prepare("SELECT id FROM accounts").all()) {
     transaction(db, () => {
       const row = db.prepare("SELECT state, revision FROM accounts WHERE id=?").get(id);
@@ -47,6 +52,7 @@ export function tickAccounts(db, now) {
       a.fundingGaps = due
         .filter((f) => holds(a, f.symbol, f.at) && !funding.some((x) => x.symbol === f.symbol && x.at === f.at))
         .map((f) => `${f.symbol}:${f.at}`);
+      a.walletBlocked = blocked.has(a.ownerId);
       advance(a, quotes, now);
       db.prepare("UPDATE accounts SET state=?, revision=revision+1 WHERE id=? AND revision=?").run(JSON.stringify(a), id, row.revision);
       processed++;
@@ -101,9 +107,16 @@ export async function refreshMarket(db, fetcher, now = Date.now()) {
 
 export function startRunner(db, fetcher, { offline = false } = {}) {
   let collecting = false;
+  let billedAt = 0;
   const tick = () => {
     try {
       tickAccounts(db, Date.now());
+      if (Date.now() - billedAt > 1e4) {
+        billedAt = Date.now();
+        try {
+          bill(db);
+        } catch { /* кошелёк ещё не создан */ }
+      }
     } catch (e) {
       setValue(db, "worker:health", { at: Date.now(), status: "error", message: e.message });
     }

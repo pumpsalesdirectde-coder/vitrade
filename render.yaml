@@ -1,4 +1,4 @@
-# Render Blueprint для публичного теста VITrade.
+# Render Blueprint для публичного теста MIVTrade.
 # Платный план starter нужен, чтобы сервис не засыпал и чтобы подключить постоянный диск под SQLite.
 # Регион Frankfurt: публичный API Bybit отклоняет запросы с американских адресов.
 services:

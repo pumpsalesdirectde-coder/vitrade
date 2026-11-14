@@ -27,7 +27,7 @@ export default function Profile({ user, state, theme, setTheme, reload }) {
         <span className="avatar big-avatar" aria-hidden="true">{user.name.slice(0, 1).toUpperCase()}</span>
         <div>
           <h2>{user.name}</h2>
-          <p className="muted">{user.email} · в VITrade с {when(user.createdAt)}</p>
+          <p className="muted">{user.email} · в MIVTrade с {when(user.createdAt)}</p>
         </div>
         <dl className="profile-nums">
           <div><dt>Капитал на счетах</dt><dd>{money(equity, 0)}</dd></div>

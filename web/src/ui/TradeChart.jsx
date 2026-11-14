@@ -117,7 +117,7 @@ export default function TradeChart({ account, cycle, position, onClose }) {
         {ticks.map((p) => (
           <g key={p}>
             <line x1={L} x2={W - R} y1={y(p)} y2={y(p)} className="tc-grid" />
-            <text x={W - R + 6} y={y(p) + 4} className="tc-axis">{price(p)}</text>
+            <text x={W - R + 6} y={y(p) + 4} className="tc-axis">{price(p, "")}</text>
           </g>
         ))}
         {days.map((t) => <text key={t} x={Math.max(22, Math.min(W - R - 22, x(t)))} y={H - 6} className="tc-axis" textAnchor="middle">{new Date(t).toLocaleString("ru-RU", t1 - t0 >= 36 * 36e5 ? { day: "2-digit", month: "2-digit" } : { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</text>)}
@@ -137,7 +137,7 @@ export default function TradeChart({ account, cycle, position, onClose }) {
         {tags.map((l) => (
           <g key={l.label} className={`tc-tag ${l.cls}`}>
             <rect x={W - R + 2} y={l.ty - 9} width={R - 4} height={17} rx={3} />
-            <text x={W - R + 6} y={l.ty + 4}>{price(l.y)}</text>
+            <text x={W - R + 6} y={l.ty + 4}>{price(l.y, "")}</text>
             <text x={W - R - 4} y={l.ty + 4} textAnchor="end" className="tc-tag-name">{l.label}</text>
           </g>
         ))}

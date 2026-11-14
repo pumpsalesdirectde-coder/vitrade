@@ -1,5 +1,6 @@
 import { useState } from "react";
 import TradeChart from "../ui/TradeChart.jsx";
+import Period, { inRange, periodRange, usePeriod } from "../ui/Period.jsx";
 import { CLOSE_REASON, coin, duration, entryLabel, money, price, signed, tone, when } from "../format.js";
 import Hint from "../ui/Hint.jsx";
 
@@ -13,9 +14,12 @@ const result = (c, mark) => {
 export default function Trades({ account: a }) {
   const [tab, setTab] = useState("open");
   const [chart, setChart] = useState(null);
+  const [period, setPeriod] = usePeriod();
+  const range = periodRange(period);
   const names = Object.fromEntries(a.bots.map((b) => [b.id, b.config.name]));
   const marks = Object.fromEntries(a.positions.map((p) => [p.id, p.mark]));
-  const all = a.cycles.map((c) => ({ ...c, total: result(c, marks[c.id] ?? c.lastMark), mark: marks[c.id] ?? c.lastMark, label: entryLabel(c) }));
+  // открытые попадают в период по дате открытия, закрытые — по дате закрытия
+  const all = a.cycles.filter((c) => inRange(range, c.status === "CLOSED" ? c.closedAt : c.openedAt)).map((c) => ({ ...c, total: result(c, marks[c.id] ?? c.lastMark), mark: marks[c.id] ?? c.lastMark, label: entryLabel(c) }));
   const open = all.filter((c) => c.status !== "CLOSED").sort((x, y) => y.openedAt - x.openedAt);
   const closed = all.filter((c) => c.status === "CLOSED").sort((x, y) => y.closedAt - x.closedAt);
   const sum = (l) => l.reduce((s, c) => s + c.total, 0);
@@ -32,6 +36,7 @@ export default function Trades({ account: a }) {
 
   return (
     <div className="trades">
+      <section className="panel period-bar"><Period value={period} onChange={setPeriod} /></section>
       <section className="block">
         <header className="block-head"><h2>Результат по стратегиям входа</h2></header>
         {Object.keys(by).length === 0 ? <p className="empty-line">Сделок ещё не было.</p> : (

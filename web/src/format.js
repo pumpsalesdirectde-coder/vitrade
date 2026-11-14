@@ -11,11 +11,11 @@ export const signed = (v, d = 2, unit = "\u00a0$") => {
 };
 
 /** Цена с разумным числом знаков: 67 412,5 / 0,08231 / 0,0000123. */
-export function price(v) {
+export function price(v, unit = " $") {
   const n = Number(v);
   if (!Number.isFinite(n) || n === 0) return "—";
   const d = n >= 1000 ? 1 : n >= 1 ? 4 : Math.min(8, 2 - Math.floor(Math.log10(n)) + 2);
-  return f(d).format(n);
+  return f(d).format(n) + unit;
 }
 
 export const pct = (v, d = 1) => (Number.isFinite(Number(v)) ? f(d).format(Number(v)) + "%" : "—");
@@ -60,6 +60,7 @@ export function botStatus(b, cycle) {
   if (cycle?.status === "LIQUIDATING") return { key: "danger", text: "Ликвидация" };
   if (cycle?.status === "CLOSING") return { key: "busy", text: "Закрывается" };
   if (cycle && b.paused) return { key: "hold", text: "В позиции · докупки на паузе" };
+  if (cycle?.dcaLocked) return { key: "hold", text: "В позиции · подстраховка остановила докупки" };
   if (cycle && b.finish) return { key: "busy", text: "Доводит сделку и остановится" };
   if (cycle) return { key: "live", text: "В позиции" };
   if (!b.enabled) return { key: "off", text: "Остановлен" };

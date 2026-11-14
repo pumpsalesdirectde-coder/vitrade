@@ -8,6 +8,8 @@ import { openDatabase } from "./db.js";
 import { startRunner } from "./runner.js";
 import { createApi } from "./http.js";
 import { guardedFetch } from "./net.js";
+import { migrateAuth } from "./auth.js";
+import { migrateWallet } from "./wallet.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const env = process.env;
@@ -17,6 +19,8 @@ const dbPath = env.VITRADE_DB || resolve(root, "data", "vitrade.sqlite");
 mkdirSync(dirname(dbPath), { recursive: true });
 
 const db = openDatabase(dbPath);
+migrateAuth(db);
+migrateWallet(db);
 const stop = startRunner(db, guardedFetch, { offline: env.VITRADE_OFFLINE === "1" });
 const server = createApi({
   db, fetcher: guardedFetch, webRoot: resolve(root, "web", "dist"), port,
@@ -25,7 +29,7 @@ const server = createApi({
   maxUsers: Number(env.VITRADE_MAX_USERS || 0),
 });
 
-server.listen(port, host, () => console.log(`VITrade: http://${host}:${port}`));
+server.listen(port, host, () => console.log(`MIVTrade: http://${host}:${port}`));
 
 function shutdown() {
   stop();

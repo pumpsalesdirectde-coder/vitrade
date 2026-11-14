@@ -8,6 +8,7 @@ import { DEFAULT_CONFIG, LIMITS, command, createBot, newAccount, summarize } fro
 import { D, positive } from "./engine/accounting.js";
 import { collectCandles } from "./market/bybit.js";
 import * as auth from "./auth.js";
+import * as wallet from "./wallet.js";
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".woff": "font/woff", ".png": "image/png", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json", ".json": "application/json" };
 const fail = (message, status = 400) => Object.assign(Error(message), { status });
@@ -21,7 +22,9 @@ function thin(points, n = 240) {
 function publicAccount(a, quotes) {
   const s = summarize(a, quotes);
   const { fills, fundingIds, ...rest } = s;
-  return { ...rest, snapshots: thin(s.snapshots), events: s.events.slice(-150).reverse(), fillCount: fills.length };
+  // служебная история цен подстраховки интерфейсу не нужна
+  const strip = ({ marks, ...c }) => c;
+  return { ...rest, cycles: rest.cycles.map(strip), positions: rest.positions.map(strip), snapshots: thin(s.snapshots), events: s.events.slice(-150).reverse(), fillCount: fills.length };
 }
 
 async function body(req) {
@@ -46,6 +49,7 @@ const cookies = (req) => Object.fromEntries((req.headers.cookie || "").split(/;\
 }));
 export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustProxy = false, maxUsers = 0 }) {
   auth.migrateAuth(db);
+  wallet.migrateWallet(db);
   const secure = publicUrl.startsWith("https://");
   const sessionCookie = (token, maxAge) => `${auth.COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secure ? "; Secure" : ""}`;
   const origins = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`, "http://127.0.0.1:5173", "http://localhost:5173"]);
@@ -74,6 +78,8 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
       if (maxUsers && auth.userCount(db) >= maxUsers) throw fail("Набор на тест закрыт: мест больше нет", 403);
       const id = auth.register(db, p);
       signups.set(ctx.meta.ip, [...recent, now]);
+      wallet.attachReferrer(db, id, p.ref);
+      wallet.ensureUser(db, id);
       // Новичку сразу открываем виртуальный счёт, чтобы кабинет не был пустым.
       if (!listAccounts(db).some((a) => a.ownerId === id)) insertAccount(db, newAccount(randomUUID(), id, "Основной счёт", "market", now, "bybit", "10000"));
       auth.recordLogin(db, id, String(p.email).trim().toLowerCase(), true, ctx.meta);
@@ -112,12 +118,19 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
       auth.updateProfile(db, ctx.user, await body(ctx.req));
       return { ok: true };
     }],
+    ["GET", /^\/api\/wallet$/, (ctx) => wallet.walletView(db, ctx.user.id)],
+    ["POST", /^\/api\/wallet\/deposit$/, async (ctx) => {
+      wallet.deposit(db, ctx.user.id, (await body(ctx.req)).amount);
+      return { ok: true };
+    }],
+    ["GET", /^\/api\/referrals$/, (ctx) => wallet.referralView(db, ctx.user.id)],
     ["GET", /^\/api\/state$/, (ctx) => {
       const quotes = getValue(db, "market:quotes", {});
       return {
         now: Date.now(), limits: LIMITS, defaults: DEFAULT_CONFIG,
         market: getValue(db, "market:health", { status: "starting" }),
         worker: getValue(db, "worker:health", { status: "starting" }),
+        wallet: { balance: wallet.balance(db, ctx.user.id) },
         accounts: listAccounts(db).filter((a) => a.ownerId === ctx.user.id).map((a) => publicAccount(a, quotes)),
       };
     }],

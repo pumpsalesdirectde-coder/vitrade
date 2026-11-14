@@ -41,7 +41,7 @@ export function useAppState(enabled, intervalMs = 2000) {
       setState(await get("/api/state"));
       setError("");
     } catch (e) {
-      setError(e.message === "Failed to fetch" ? "Нет связи с сервером VITrade" : e.message);
+      setError(e.message === "Failed to fetch" ? "Нет связи с сервером MIVTrade" : e.message);
     }
   }, []);
   useEffect(() => {

@@ -14,11 +14,14 @@ import Exchanges from "./pages/Exchanges.jsx";
 import Profile from "./pages/Profile.jsx";
 import Security from "./pages/Security.jsx";
 import Guide from "./pages/Guide.jsx";
+import Wallet from "./pages/Wallet.jsx";
+import Referrals from "./pages/Referrals.jsx";
 import Hint from "./ui/Hint.jsx";
 
 const MENU = [
   ["Торговля", [["overview", "Обзор"], ["screener", "Чекер"], ["bots", "Боты"], ["trades", "Сделки"], ["stats", "Статистика"]]],
   ["Счета", [["exchanges", "Биржи и счета"]]],
+  ["Финансы", [["wallet", "Кошелёк"], ["referrals", "Рефералы"]]],
   ["Аккаунт", [["profile", "Профиль и настройки"], ["security", "Безопасность"]]],
   ["Помощь", [["guide", "Гайд"]]],
 ];
@@ -121,6 +124,8 @@ export default function App() {
       profile: <Profile user={user} state={state} theme={theme} setTheme={setTheme} reload={reloadSession} />,
       security: <Security />,
       guide: <Guide topic={rest[0]} />,
+      wallet: <Wallet refresh={refresh} />,
+      referrals: <Referrals />,
       new: <BotForm account={account} state={state} refresh={refresh} />,
       edit: <BotForm account={account} state={state} botId={rest[0]} refresh={refresh} />,
     }[page] || <Overview account={account} />;
@@ -158,17 +163,19 @@ export default function App() {
             <label className="account-pick">
               <span className="muted">Счёт</span>
               <select value={account?.id} onChange={(e) => pick(e.target.value)}>
-                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} · PnL {signed(a.net)}</option>)}
               </select>
-              {account && <span className={`acc-net ${tone(account.net)}`}>{signed(account.net)}</span>}
+              {account && <span className={`acc-net ${tone(account.net)}`}><Hint term="pnl">PnL</Hint> {signed(account.net)}</span>}
             </label>
           )}
           <div className="top-right">
+            {state?.wallet && <a className={`wallet-chip ${state.wallet.balance < 0 ? "minus" : ""}`} href="#/wallet" title="Баланс кошелька"><Icon name="wallet" size={15} />{money(state.wallet.balance)}</a>}
             <MarketStatus market={state?.market} />
             <Hint term="paper"><span className="paper">Paper</span></Hint>
           </div>
         </header>
         {error && <div className="banner">{error}</div>}
+        {state?.wallet?.balance < 0 && <div className="banner">Баланс кошелька отрицательный ({money(state.wallet.balance)}): боты не открывают новые сделки. <a href="#/wallet">Пополнить кошелёк</a></div>}
         {needsAccount && account?.reserveShortfall && <div className="banner">На счёте не хватает свободных средств под бюджеты ботов — новые сделки и докупки остановлены.</div>}
         <main>{content}</main>
         {needsAccount && account && <footer className="foot">Капитал счёта «{account.name}»: <b>{money(account.equity)}</b></footer>}

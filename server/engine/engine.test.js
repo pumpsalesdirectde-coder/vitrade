@@ -64,3 +64,29 @@ test("классификатор стадий: памп +30% и откат 8% �
   c[59] = 1.3 * 0.92;
   assert.equal(classifyStage(h, l, c).stage, "FLIP");
 });
+
+test("подстраховка: рост на 20%+ за час после 3-го шага останавливает докупки", () => {
+  const { a, b } = manualAccount("SHORT");
+  const min = 6e4;
+  advance(a, quote("XUSDT", 100, min), min); // шаг 1
+  advance(a, quote("XUSDT", 105, 10 * min), 10 * min); // шаг 2
+  advance(a, quote("XUSDT", 110, 20 * min), 20 * min); // шаг 3
+  const c = a.cycles[0];
+  assert.equal(c.usedSteps, 3);
+  advance(a, quote("XUSDT", 121, 30 * min), 30 * min); // +21% от минимума часа — шаги 4 и 5 не исполняются
+  assert.equal(c.dcaLocked, true);
+  assert.equal(c.usedSteps, 3);
+  assert.ok(a.events.some((e) => e.type === "GUARD"));
+  assert.equal(c.status, "OPEN");
+  assert.equal(b.currentCycleId, c.id);
+});
+
+test("подстраховка выключена — сетка докупает как обычно", () => {
+  const a = newAccount("a3", "local", "Тест", "market", 0);
+  const b = createBot(a, { ...DEFAULT_CONFIG, mode: "manual", symbol: "XUSDT", budget: "800", spacingPct: "5", slippageRate: "0", guardOn: false }, 0);
+  command(a, b.id, "start", {}, 0);
+  const min = 6e4;
+  for (const [t, p] of [[1, 100], [10, 105], [20, 110], [30, 121]]) advance(a, quote("XUSDT", p, t * min), t * min);
+  assert.equal(a.cycles[0].usedSteps, 5);
+  assert.notEqual(a.cycles[0].dcaLocked, true);
+});
