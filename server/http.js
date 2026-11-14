@@ -220,6 +220,11 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
     try {
       if (!(await stat(file)).isFile()) throw 0;
     } catch {
+      // отсутствующий файл (например, старый /icon.svg) — 404, а не страница: иначе браузер кэширует HTML как иконку
+      if (extname(safe)) {
+        res.writeHead(404, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-cache" });
+        return res.end("Not found");
+      }
       file = join(webRoot, "index.html");
     }
     try {
