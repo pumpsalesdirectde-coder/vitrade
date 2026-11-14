@@ -547,3 +547,32 @@ th .hint::after { top: calc(100% + 8px); bottom: auto; }
   .fork-facts dt { max-width: none; }
   .fork-pair .panel-head button { white-space: normal; }
 }
+
+/* --- таблицы-карточки, когда таблица не помещается по ширине (см. ui/fitTables.js) --- */
+.grid-table.stack, .grid-table.stack tbody { display: block; width: 100%; }
+.grid-table.stack thead { display: none; }
+.grid-table.stack tbody { display: grid; gap: 10px; }
+.grid-table.stack tr { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--raise) 35%, transparent); }
+.grid-table.stack tbody tr:hover { background: color-mix(in srgb, var(--raise) 55%, transparent); }
+.grid-table.stack td { display: block; width: auto; padding: 0; border: 0; white-space: normal; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.grid-table.stack td.num { text-align: left; }
+.grid-table.stack td.wrap { min-width: 0; }
+.grid-table.stack td::before { display: block; margin-bottom: 2px; content: attr(data-label); color: var(--muted); font-size: .72rem; font-weight: 500; }
+.grid-table.stack td[data-label=""]::before { display: none; }
+.grid-table.stack td:first-child { grid-column: 1 / -1; font-size: .95rem; }
+.grid-table.stack td:first-child::before { display: none; }
+.grid-table.stack td:last-child:has(.row-actions, button, .btn) { grid-column: 1 / -1; }
+.grid-table.stack .row-actions { flex-wrap: wrap; justify-content: flex-start; }
+.table-wrap:has(> .stack) { overflow-x: visible; }
+@media (max-width: 640px) {
+  .grid-table.stack tr { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* кнопки действий в строке переносятся, а не растягивают таблицу */
+.grid-table td:has(> .row-actions) { white-space: normal; width: 1%; }
+.grid-table:not(.stack) .row-actions { flex-wrap: wrap; min-width: 250px; max-width: 330px; margin-left: auto; }
+.grid-table.stack td:has(> .row-actions) { width: auto; grid-column: 1 / -1; }
+/* календарь на узком экране: карточка бота с плиткой дней */
+.grid-table.calendar.stack tr { grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; }
+.grid-table.calendar.stack td.cell { min-width: 0; padding: 4px 6px; border-radius: 6px; background: color-mix(in srgb, var(--raise) 60%, transparent); }
+.grid-table.calendar.stack td:last-child { grid-column: 1 / -1; }
+.grid-table.calendar.stack td.zero { display: none; }

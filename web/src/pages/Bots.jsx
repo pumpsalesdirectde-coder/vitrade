@@ -3,6 +3,7 @@ import { post } from "../api.js";
 import { STRATEGY, STRATEGY_ORDER, botStatus, coin, money, signed, tone } from "../format.js";
 import Hint from "../ui/Hint.jsx";
 import { activeFork } from "../fork-state.js";
+import TradeChart from "../ui/TradeChart.jsx";
 
 function strategies(cfg) {
   if (cfg.mode === "manual") return `Вручную · ${coin(cfg.symbol)} ${cfg.direction === "LONG" ? "лонг" : "шорт"}`;
@@ -50,6 +51,8 @@ function Actions({ a, b, c, refresh, setErr }) {
 export default function Bots({ account: a, refresh }) {
   const [err, setErr] = useState("");
   const [filter, setFilter] = useState("all");
+  const [chartId, setChartId] = useState(null);
+  const chart = chartId && (a.positions.find((p) => p.id === chartId) || a.cycles.find((x) => x.id === chartId));
   const rows = a.bots.map((b) => {
     const c = a.positions.find((p) => p.id === b.currentCycleId);
     const done = a.cycles.filter((x) => x.botId === b.id && x.status === "CLOSED");
@@ -83,10 +86,10 @@ export default function Bots({ account: a, refresh }) {
             <tbody>
               {shown.map(({ b, c, done, result, st, pair }) => (
                 <tr key={b.id}>
-                  <td><strong>{b.config.name}</strong>{b.forkParentId ? <a className="sub small fork-link" href={`#/fork/${b.forkParentId}`}>Лонг вилки ↔ {a.bots.find((parent) => parent.id === b.forkParentId)?.config.name || "основной шорт"}</a> : <a className="sub small fork-link" href={`#/fork/${b.id}`}>{pair ? "Шорт вилки ↔ связанный лонг" : `Вилка: ${b.config.fork?.enabled === false ? "выключена" : "включена"}`}</a>}</td>
+                  <td className="wrap"><strong>{b.config.name}</strong>{b.forkParentId ? <a className="sub small fork-link" href={`#/fork/${b.forkParentId}`}>Лонг вилки ↔ {a.bots.find((parent) => parent.id === b.forkParentId)?.config.name || "основной шорт"}</a> : <a className="sub small fork-link" href={`#/fork/${b.id}`}>{pair ? "Шорт вилки ↔ связанный лонг" : `Вилка: ${b.config.fork?.enabled === false ? "выключена" : "включена"}`}</a>}</td>
                   <td className="muted wrap">{b.forkParentId ? "Связанный лонг · общий выход" : strategies(b.config)}</td>
-                  <td><span className={`state ${st.key}`}>{st.text}</span>{!c && b.enabled && <small className="sub muted">{b.lastReason}</small>}</td>
-                  <td>{c ? <><strong>{coin(c.symbol)}</strong> <span className={`side ${c.direction === "LONG" ? "long" : "short"}`}>{c.direction === "LONG" ? "Лонг" : "Шорт"}</span> <small className="muted">{pair ? "объём зафиксирован" : `шаг ${c.usedSteps}/${c.config.steps}`}</small></> : <span className="muted">—</span>}</td>
+                  <td className="wrap"><span className={`state ${st.key}`}>{st.text}</span>{!c && b.enabled && <small className="sub muted">{b.lastReason}</small>}</td>
+                  <td>{c ? <><button className="coin-link" onClick={() => setChartId(c.id)} title="Открыть график сделки"><strong>{coin(c.symbol)}</strong></button> <span className={`side ${c.direction === "LONG" ? "long" : "short"}`}>{c.direction === "LONG" ? "Лонг" : "Шорт"}</span> <small className="muted">{pair ? "объём зафиксирован" : `шаг ${c.usedSteps}/${c.config.steps}`}</small></> : <span className="muted">—</span>}</td>
                   <td className="num">{money(b.config.budget, 0)} × {b.config.leverage}</td>
                   <td className="num">{done.length}</td>
                   <td className={`num ${tone(result)}`}>{done.length ? signed(result) : "—"}</td>
@@ -98,6 +101,7 @@ export default function Bots({ account: a, refresh }) {
           </table>
         </div>
       )}
+      {chart && <TradeChart account={a} cycle={chart} position={a.positions.find((p) => p.id === chart.id)} onClose={() => setChartId(null)} />}
     </section>
   );
 }
