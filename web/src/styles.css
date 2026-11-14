@@ -507,3 +507,44 @@ th .hint::after { top: calc(100% + 8px); bottom: auto; }
 @media (max-width: 760px) { .ref-hero { grid-template-columns: 1fr; } }
 .warn-chip { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
 .guard-fields { margin-top: 4px; }
+
+/* --- вилка: настройки, прогноз и связанные позиции --- */
+.fork-page { gap: 24px; }
+.fork-intro { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+.fork-intro p { max-width: 78ch; margin-top: 8px; font-size: .9rem; }
+.fork-pick { max-width: 440px; }
+.fork-layout { display: grid; }
+.fork-form > .form-actions { padding-top: 16px; }
+.fork-form fieldset > .notice { line-height: 1.5; }
+.fork-or { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: .75rem; font-weight: 650; }
+.fork-or::before, .fork-or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.fork-preview .panel-head { align-items: center; }
+.fork-preview .panel-head button { font-size: .78rem; }
+.fork-preview .notice { margin: 12px 0; }
+.fork-ready { color: var(--up) !important; padding: 10px 0 0; font-weight: 600; }
+.fork-facts { margin: 0; }
+.fork-facts > div { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.fork-facts dt { color: var(--muted); font-size: .8rem; max-width: 65%; }
+.fork-facts dd { margin: 0; text-align: right; font-weight: 600; overflow-wrap: anywhere; }
+.fork-preview > .small { margin-top: 12px; }
+.fork-pair-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.fork-pair { display: flex; flex-direction: column; gap: 12px; }
+.fork-pair .panel-head { margin-bottom: 0; }
+.fork-pair .panel-head h3 { margin-bottom: 4px; }
+.fork-members { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: .86rem; }
+.fork-members > a, .fork-members > span { overflow-wrap: anywhere; }
+.fork-total { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 14px; border: 1px solid var(--border-2); border-radius: 8px; background: var(--panel-2); }
+.fork-total strong { font-size: 1.25rem; white-space: nowrap; }
+.fork-total > span { font-size: .88rem; }
+.fork-plan summary { cursor: pointer; color: var(--soft); font-size: .84rem; }
+.fork-plan[open] summary { margin-bottom: 8px; }
+.fork-link { white-space: normal; max-width: 250px; margin-top: 4px; }
+@media (max-width: 1200px) { .fork-pair-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) {
+  .fork-intro { flex-direction: column; }
+  .fork-pick { max-width: none; }
+  .fork-total { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .fork-facts > div { flex-wrap: wrap; }
+  .fork-facts dt { max-width: none; }
+  .fork-pair .panel-head button { white-space: normal; }
+}
