@@ -9,7 +9,7 @@ import { STRATEGY_KEYS, stageDirection } from "./signals.js";
 import { FORK_DEFAULTS, normalizeFork, observeFork } from './fork.js';
 import { advancePairs, tryOpenFork, requestPairClose, pairView } from './fork-lifecycle.js';
 
-export const LIMITS = { accounts: 10, botsPerAccount: 20, steps: [1, 8], leverage: [1, 10] };
+export const LIMITS = { accounts: 20, botsPerAccount: 20, steps: [1, 8], leverage: [1, 10] };
 
 export const DEFAULT_CONFIG = {
   fork: FORK_DEFAULTS,
