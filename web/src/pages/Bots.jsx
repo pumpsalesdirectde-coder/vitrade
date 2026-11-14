@@ -2,6 +2,7 @@ import { useState } from "react";
 import { post } from "../api.js";
 import { STRATEGY, STRATEGY_ORDER, botStatus, coin, money, signed, tone } from "../format.js";
 import Hint from "../ui/Hint.jsx";
+import { activeFork } from "../fork-state.js";
 
 function strategies(cfg) {
   if (cfg.mode === "manual") return `Вручную · ${coin(cfg.symbol)} ${cfg.direction === "LONG" ? "лонг" : "шорт"}`;
@@ -9,6 +10,7 @@ function strategies(cfg) {
 }
 
 function Actions({ a, b, c, refresh, setErr }) {
+  const pair = activeFork(a.forks, b.id);
   const run = async (action, payload, confirmText) => {
     if (confirmText && !confirm(confirmText)) return;
     try {
@@ -29,6 +31,8 @@ function Actions({ a, b, c, refresh, setErr }) {
     }
   };
   const buttons = [];
+  if (pair) return <div className="row-actions"><a className="btn" href={`#/fork/${pair.parentBotId}`}>К паре</a><button className="danger" disabled={pair.status === "CLOSING"} onClick={() => run("close", {}, `Закрыть обе позиции ${coin(pair.symbol)} по рынку и остановить обоих ботов?`)}>{pair.status === "CLOSING" ? "Пара закрывается" : "Закрыть обе позиции"}</button></div>;
+  if (b.forkParentId) return <div className="row-actions"><a className="btn ghost" href={`#/fork/${b.forkParentId}`}>История вилки</a></div>;
   if (!b.enabled && !c) {
     buttons.push(<button key="s" className="primary" onClick={() => run("start")}>Запустить</button>);
     buttons.push(<a key="e" className="btn" href={`#/edit/${b.id}`}>Настроить</a>);
@@ -50,7 +54,8 @@ export default function Bots({ account: a, refresh }) {
     const c = a.positions.find((p) => p.id === b.currentCycleId);
     const done = a.cycles.filter((x) => x.botId === b.id && x.status === "CLOSED");
     const result = done.reduce((s, x) => s + Number(x.realized) + Number(x.funding) - Number(x.fees), 0);
-    return { b, c, done, result, st: botStatus(b, c) };
+    const pair = activeFork(a.forks, b.id);
+    return { b, c, done, result, pair, st: botStatus(b, c) };
   });
   const shown = rows.filter((r) => filter === "all" || (filter === "pos" ? r.c : filter === "wait" ? !r.c && r.b.enabled : !r.b.enabled && !r.c));
   const counts = { all: rows.length, pos: rows.filter((r) => r.c).length, wait: rows.filter((r) => !r.c && r.b.enabled).length, off: rows.filter((r) => !r.b.enabled && !r.c).length };
@@ -76,12 +81,12 @@ export default function Bots({ account: a, refresh }) {
               <tr><th>Бот</th><th>Стратегии входа</th><th>Состояние</th><th>Позиция</th><th className="num"><Hint term="budget">Бюджет</Hint> × <Hint term="leverage">плечо</Hint></th><th className="num">Закрыто</th><th className="num"><Hint term="realized">Итог закрытых</Hint></th><th className="num"><Hint term="unrealized">Плавающий</Hint></th><th /></tr>
             </thead>
             <tbody>
-              {shown.map(({ b, c, done, result, st }) => (
+              {shown.map(({ b, c, done, result, st, pair }) => (
                 <tr key={b.id}>
-                  <td><strong>{b.config.name}</strong></td>
-                  <td className="muted wrap">{strategies(b.config)}</td>
+                  <td><strong>{b.config.name}</strong>{b.forkParentId ? <a className="sub small fork-link" href={`#/fork/${b.forkParentId}`}>Лонг вилки ↔ {a.bots.find((parent) => parent.id === b.forkParentId)?.config.name || "основной шорт"}</a> : <a className="sub small fork-link" href={`#/fork/${b.id}`}>{pair ? "Шорт вилки ↔ связанный лонг" : `Вилка: ${b.config.fork?.enabled === false ? "выключена" : "включена"}`}</a>}</td>
+                  <td className="muted wrap">{b.forkParentId ? "Связанный лонг · общий выход" : strategies(b.config)}</td>
                   <td><span className={`state ${st.key}`}>{st.text}</span>{!c && b.enabled && <small className="sub muted">{b.lastReason}</small>}</td>
-                  <td>{c ? <><strong>{coin(c.symbol)}</strong> <span className={`side ${c.direction === "LONG" ? "long" : "short"}`}>{c.direction === "LONG" ? "Лонг" : "Шорт"}</span> <small className="muted">шаг {c.usedSteps}/{c.config.steps}</small></> : <span className="muted">—</span>}</td>
+                  <td>{c ? <><strong>{coin(c.symbol)}</strong> <span className={`side ${c.direction === "LONG" ? "long" : "short"}`}>{c.direction === "LONG" ? "Лонг" : "Шорт"}</span> <small className="muted">{pair ? "объём зафиксирован" : `шаг ${c.usedSteps}/${c.config.steps}`}</small></> : <span className="muted">—</span>}</td>
                   <td className="num">{money(b.config.budget, 0)} × {b.config.leverage}</td>
                   <td className="num">{done.length}</td>
                   <td className={`num ${tone(result)}`}>{done.length ? signed(result) : "—"}</td>

@@ -88,11 +88,13 @@ export default function Trades({ account: a }) {
               <tbody>
                 {list.map((c) => {
                   const byPrice = c.total - Number(c.funding) + Number(c.fees);
+                  const pair = a.forks?.find((p) => p.id === c.forkId);
+                  const related = pair && (c.direction === "LONG" ? pair.parentBotId : pair.childBotId);
                   return (
                     <tr key={c.id}>
                       <td><button className="coin-link" onClick={() => setChart(c)} title="Открыть график сделки"><strong>{coin(c.symbol)}</strong></button> <span className={`side ${c.direction === "LONG" ? "long" : "short"}`}>{c.direction === "LONG" ? "Л" : "Ш"}</span></td>
                       <td><span className="chip">{c.label}</span></td>
-                      <td className="muted">{names[c.botId] || "удалён"}</td>
+                      <td className="muted">{names[c.botId] || "удалён"}{pair && <a className="sub small fork-link" href={`#/fork/${pair.parentBotId}`}>Вилка: {c.direction === "LONG" ? "лонг" : "шорт"} ↔ {names[related] || "связанная сторона"}</a>}</td>
                       <td className="num">{c.usedSteps}/{c.config.steps}</td>
                       <td className="num">{price(c.anchor)}</td>
                       <td className="num">{price(c.average)}</td>

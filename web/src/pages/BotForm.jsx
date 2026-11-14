@@ -80,7 +80,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   const submit = async (start) => {
     setBusy(true);
     try {
-      const config = { ...cfg, exclusions: excl.split(/[\s,;]+/).filter(Boolean).map((s) => s.toUpperCase().replace(/USDT$/, "") + "USDT") };
+      const config = { ...cfg, fork: editing?.config.fork ?? state.defaults.fork, exclusions: excl.split(/[\s,;]+/).filter(Boolean).map((s) => s.toUpperCase().replace(/USDT$/, "") + "USDT") };
       if (editing) await post(`/api/accounts/${a.id}/bots/${editing.id}/commands`, { action: "update", payload: config });
       else await post(`/api/accounts/${a.id}/bots`, { config, start });
       refresh();
@@ -91,6 +91,8 @@ export default function BotForm({ account: a, state, botId, refresh }) {
       setBusy(false);
     }
   };
+
+  if (editing?.forkParentId) return <div className="empty-state"><h2>Связанный лонг вилки</h2><p className="muted">Этот бот открывается автоматически для совместного выхода с основным шортом. Его нельзя редактировать или запускать отдельно.</p><a className="btn primary" href={`#/fork/${editing.forkParentId}`}>Открыть вилку</a></div>;
 
   return (
     <div className="form-page">
@@ -146,6 +148,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
 
         <fieldset>
           <legend>Защита позиции</legend>
+          <div className="notice"><b>Вилка: связанный лонг для выхода из шорта</b><p>{editing ? `Сейчас ${editing.config.fork?.enabled === false ? "выключена" : "включена"}.` : `По умолчанию ${state.defaults.fork?.enabled === false ? "выключена" : "включена"}.`} Пороги роста, размер цели и ограничения задаются во вкладке «Вилка».</p>{editing ? <a href={`#/fork/${editing.id}`}>Настроить вилку</a> : <small className="muted">Сначала создайте бота, затем откройте вкладку «Вилка».</small>}</div>
           <label className="check big-check"><input type="checkbox" checked={cfg.marginAuto} onChange={set("marginAuto")} />
             <span><b><Hint term="cushion">Подушка маржи</Hint></b> — если запас до ликвидации меньше 15%, бот добавит маржу со свободных средств, а при запасе больше 30% вернёт её. Рекомендуем держать включённой.</span></label>
           {cfg.marginAuto && <label className="inline"><Hint term="cushionCap">Не больше, $</Hint><input className="num" inputMode="decimal" value={cfg.marginCap} onChange={set("marginCap")} /></label>}
