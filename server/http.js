@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { getValue, insertAccount, listAccounts, mutateAccount, readAccount, transaction } from "./db.js";
 import { DEFAULT_CONFIG, LIMITS, command, createBot, newAccount, summarize } from "./engine/engine.js";
 import { D, positive } from "./engine/accounting.js";
+import { forkPlan } from './engine/fork.js';
 import { collectCandles } from "./market/bybit.js";
 import * as auth from "./auth.js";
 import * as wallet from "./wallet.js";
@@ -23,7 +24,7 @@ function publicAccount(a, quotes) {
   const s = summarize(a, quotes);
   const { fills, fundingIds, ...rest } = s;
   // служебная история цен подстраховки интерфейсу не нужна
-  const strip = ({ marks, ...c }) => c;
+  const strip = ({ marks, forkMarks, ...c }) => c;
   return { ...rest, cycles: rest.cycles.map(strip), positions: rest.positions.map(strip), snapshots: thin(s.snapshots), events: s.events.slice(-150).reverse(), fillCount: fills.length };
 }
 
@@ -185,6 +186,15 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
         return b.id;
       }, ctx.req.headers["idempotency-key"]);
       return { id };
+    }],
+    ["POST", /^\/api\/accounts\/([\w-]+)\/bots\/([\w-]+)\/fork-preview$/, async (ctx, m) => {
+      const a = own(ctx.user, m[1]);
+      const b = a.bots.find(b => b.id === m[2]);
+      if (!b || b.forkParentId) throw fail('Основной бот не найден', 404);
+      const p = await body(ctx.req);
+      const c = a.cycles.find(c => c.id === b.currentCycleId);
+      if (c?.forkId) return { ok: false, reason: 'Вилка уже открыта; её параметры зафиксированы' };
+      return forkPlan(a, b, c, c && getValue(db, 'market:quotes', {})[c.symbol], Date.now(), p.settings);
     }],
     ["POST", /^\/api\/accounts\/([\w-]+)\/bots\/([\w-]+)\/commands$/, async (ctx, m) => {
       const p = await body(ctx.req);
