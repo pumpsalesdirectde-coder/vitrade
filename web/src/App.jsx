@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { post, useAppState, useSession } from "./api.js";
-import { money, signed, tone } from "./format.js";
+import { money } from "./format.js";
 import Brand from "./ui/Brand.jsx";
 import Icon from "./ui/Icon.jsx";
 import Auth from "./pages/Auth.jsx";
@@ -18,6 +18,8 @@ import Guide from "./pages/Guide.jsx";
 import Wallet from "./pages/Wallet.jsx";
 import Referrals from "./pages/Referrals.jsx";
 import Hint from "./ui/Hint.jsx";
+import AccountSwitch from "./ui/AccountSwitch.jsx";
+import AllAccounts from "./pages/AllAccounts.jsx";
 
 const MENU = [
   ["Торговля", [["overview", "Обзор"], ["screener", "Чекер"], ["bots", "Боты"], ["fork", "Вилка"], ["trades", "Сделки"], ["stats", "Статистика"]]],
@@ -29,6 +31,8 @@ const MENU = [
 const TITLES = Object.fromEntries(MENU.flatMap(([, items]) => items));
 // разделы, где показывается выбор счёта
 const ACCOUNT_PAGES = new Set(["overview", "bots", "fork", "trades", "stats", "new", "edit"]);
+// разделы, где доступна сводка «Все счета»; остальным нужен конкретный счёт
+const ALL_PAGES = new Set(["overview", "bots", "trades", "stats"]);
 
 function useHash() {
   const read = () => (location.hash.replace(/^#\/?/, "") || "overview").split("/");
@@ -91,6 +95,7 @@ export default function App() {
   if (!user) return <Auth firstRun={session.firstRun} onDone={reloadSession} />;
 
   const accounts = (state?.accounts || []).filter((a) => !a.archived);
+  const all = accountId === "all" && accounts.length > 0;
   const account = accounts.find((a) => a.id === accountId) || accounts[0];
   const pick = (id) => {
     setAccountId(id);
@@ -104,6 +109,7 @@ export default function App() {
   const current = page === "new" || page === "edit" ? "bots" : page;
   const title = page === "new" ? "Новый бот" : page === "edit" ? "Настройки бота" : TITLES[page] || "Обзор";
   const needsAccount = ACCOUNT_PAGES.has(page) || !TITLES[page];
+  const showAll = all && (ALL_PAGES.has(page) || !TITLES[page]);
 
   let content;
   if (!state) content = <p className="muted">Загрузка…</p>;
@@ -115,6 +121,8 @@ export default function App() {
         <a className="btn primary" href="#/exchanges">Открыть счёт</a>
       </div>
     );
+  } else if (showAll) {
+    content = <AllAccounts accounts={accounts} page={page} onPick={pick} />;
   } else {
     content = {
       overview: <Overview account={account} />,
@@ -145,6 +153,8 @@ export default function App() {
               {items.map(([id, label]) => (
                 <a key={id} href={`#/${id}`} aria-current={current === id ? "page" : undefined}>
                   <Icon name={id} />{label}
+                  {id === "wallet" && state?.wallet && <span className={`nav-badge ${state.wallet.balance < 0 ? "down" : ""}`}>{money(state.wallet.balance)}</span>}
+                  {id === "referrals" && state?.wallet && <span className="nav-badge count">{state.wallet.referrals ?? 0}</span>}
                 </a>
               ))}
             </div>
@@ -163,13 +173,7 @@ export default function App() {
           <button className="ghost icon burger" onClick={() => setMenuOpen(true)} aria-label="Меню"><Icon name="menu" /></button>
           <h1>{title}</h1>
           {needsAccount && accounts.length > 0 && (
-            <label className="account-pick">
-              <span className="muted">Счёт</span>
-              <select value={account?.id} onChange={(e) => pick(e.target.value)}>
-                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} · PnL {signed(a.net)}</option>)}
-              </select>
-              {account && <span className={`acc-net ${tone(account.net)}`}><Hint term="pnl">PnL</Hint> {signed(account.net)}</span>}
-            </label>
+            <AccountSwitch accounts={accounts} value={showAll ? "all" : account?.id} onChange={pick} />
           )}
           <div className="top-right">
             {state?.wallet && <a className={`wallet-chip ${state.wallet.balance < 0 ? "minus" : ""}`} href="#/wallet" title="Баланс кошелька"><Icon name="wallet" size={15} />{money(state.wallet.balance)}</a>}
@@ -179,9 +183,9 @@ export default function App() {
         </header>
         {error && <div className="banner">{error}</div>}
         {state?.wallet?.balance < 0 && <div className="banner">Баланс кошелька отрицательный ({money(state.wallet.balance)}): боты не открывают новые сделки. <a href="#/wallet">Пополнить кошелёк</a></div>}
-        {needsAccount && account?.reserveShortfall && <div className="banner">На счёте не хватает свободных средств под бюджеты ботов — новые сделки и докупки остановлены.</div>}
+        {needsAccount && !showAll && account?.reserveShortfall && <div className="banner">На счёте не хватает свободных средств под бюджеты ботов — новые сделки и докупки остановлены.</div>}
         <main>{content}</main>
-        {needsAccount && account && <footer className="foot">Капитал счёта «{account.name}»: <b>{money(account.equity)}</b></footer>}
+        {needsAccount && !showAll && account && <footer className="foot">Капитал счёта «{account.name}»: <b>{money(account.equity)}</b></footer>}
       </div>
     </div>
   );

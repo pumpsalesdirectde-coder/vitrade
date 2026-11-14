@@ -576,3 +576,47 @@ th .hint::after { top: calc(100% + 8px); bottom: auto; }
 .grid-table.calendar.stack td.cell { min-width: 0; padding: 4px 6px; border-radius: 6px; background: color-mix(in srgb, var(--raise) 60%, transparent); }
 .grid-table.calendar.stack td:last-child { grid-column: 1 / -1; }
 .grid-table.calendar.stack td.zero { display: none; }
+
+/* --- значки в меню --- */
+.nav-badge { margin-left: auto; font-size: .78rem; font-weight: 650; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nav-badge.down { color: var(--down); }
+.nav-badge.count { min-width: 1.6rem; text-align: center; padding: .05rem .45rem; border-radius: 999px; background: var(--raise); color: var(--soft); }
+
+/* --- переключатель счетов --- */
+.acc-switch { position: relative; min-width: 0; }
+.acc-trigger { gap: 10px; max-width: 100%; padding: .5rem .8rem; background: var(--panel); border-color: var(--border); border-radius: 10px; color: var(--ink); font-weight: 650; }
+.acc-trigger svg { color: var(--muted); flex: none; }
+.acc-trigger-name { overflow: hidden; text-overflow: ellipsis; }
+.acc-trigger-net { font-size: .85rem; }
+.acc-menu { position: absolute; z-index: 40; top: calc(100% + 8px); left: 0; width: min(440px, calc(100vw - 32px)); max-height: min(70vh, 560px); overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--border-2); border-radius: 14px; padding: 8px; box-shadow: 0 18px 50px rgba(0, 0, 0, .45); display: flex; flex-direction: column; }
+.acc-opt { display: grid; grid-template-columns: minmax(0, 1fr) auto 1.6rem 22px 5.8rem; align-items: center; gap: 10px; width: 100%; padding: .6rem .7rem; background: none; border: 0; border-radius: 9px; color: var(--ink); font-weight: 550; text-align: left; white-space: nowrap; }
+.acc-opt:hover { background: var(--raise); }
+.acc-opt.on { background: var(--mint-soft); }
+.acc-opt-name { overflow: hidden; text-overflow: ellipsis; }
+.acc-opt-mode, .acc-opt-bots { color: var(--muted); font-size: .84rem; text-align: right; }
+.acc-opt-net { text-align: right; font-size: .88rem; font-weight: 650; }
+.acc-all { grid-template-columns: 20px minmax(0, 1fr) auto 18px; font-weight: 650; margin-bottom: 4px; }
+.acc-all svg { color: var(--muted); }
+.acc-all.on svg { color: var(--mint); }
+.acc-pulse { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border-2); color: var(--muted); }
+.acc-pulse.on { color: var(--mint); border-color: var(--mint); }
+.acc-group { border-top: 1px solid var(--border); padding: 8px 0 4px; }
+.acc-group-head { display: flex; align-items: center; justify-content: space-between; padding: .3rem .7rem .4rem; }
+.acc-group-head b { font-size: 1.05rem; letter-spacing: .02em; }
+.acc-group-head a { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: .84rem; }
+.acc-group-head a:hover, .acc-add:hover { color: var(--ink); }
+.acc-add { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--border); margin-top: 4px; padding: .75rem .7rem .4rem; color: var(--soft); font-weight: 550; }
+.acc-add svg:last-child { margin-left: auto; color: var(--muted); }
+.all-accounts { display: flex; flex-direction: column; gap: 20px; }
+.all-accounts .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 960px) { .all-accounts .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .acc-switch { order: 5; width: 100%; }
+  .acc-trigger { width: 100%; justify-content: flex-start; }
+  .acc-trigger-net { margin-left: auto; }
+  .acc-menu { width: 100%; }
+  .acc-opt { grid-template-columns: minmax(0, 1fr) auto 22px 5.2rem; }
+  .acc-opt-mode { display: none; }
+  .acc-all { grid-template-columns: 20px minmax(0, 1fr) auto 18px; }
+}

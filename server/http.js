@@ -131,7 +131,7 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
         now: Date.now(), limits: LIMITS, defaults: DEFAULT_CONFIG,
         market: getValue(db, "market:health", { status: "starting" }),
         worker: getValue(db, "worker:health", { status: "starting" }),
-        wallet: { balance: wallet.balance(db, ctx.user.id) },
+        wallet: { balance: wallet.balance(db, ctx.user.id), referrals: db.prepare("SELECT COUNT(*) n FROM users WHERE referred_by=?").get(ctx.user.id).n },
         accounts: listAccounts(db).filter((a) => a.ownerId === ctx.user.id).map((a) => publicAccount(a, quotes)),
       };
     }],
