@@ -397,3 +397,77 @@ td > .chip:first-child { margin-left: 0; }
   .article { padding: 20px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* --- подсказки к терминам --- */
+.hint { position: relative; cursor: help; text-decoration: underline dotted color-mix(in srgb, var(--muted) 70%, transparent); text-underline-offset: 3px; }
+.hint::after {
+  content: attr(data-tip); position: absolute; z-index: 60; left: 50%; bottom: calc(100% + 8px); transform: translate(-50%, 4px);
+  width: max-content; max-width: min(280px, 80vw); padding: 8px 11px; border-radius: 8px; background: var(--raise); color: var(--ink);
+  border: 1px solid var(--border-2); box-shadow: 0 10px 28px rgba(0, 0, 0, .35); font-size: .8rem; font-weight: 450; line-height: 1.4;
+  text-align: left; white-space: normal; text-transform: none; letter-spacing: 0; pointer-events: none; display: none;
+}
+.hint:hover::after, .hint:focus::after, .hint:focus-visible::after { display: block; transform: translate(-50%, 0); }
+.top-right .hint::after { left: auto; right: 0; top: calc(100% + 8px); bottom: auto; transform: none !important; }
+th .hint::after, .num .hint::after { left: auto; right: -8px; transform: translate(0, 4px); }
+th .hint:hover::after, th .hint:focus::after, .num .hint:hover::after, .num .hint:focus::after { transform: translate(0, 0); }
+th .hint::after { top: calc(100% + 8px); bottom: auto; }
+
+/* --- подушка маржи: крупная галочка --- */
+.big-check { padding: 12px 14px; border: 1px solid var(--border-2); border-radius: var(--r); background: var(--panel-2); }
+.big-check input[type="checkbox"] { width: 24px; height: 24px; min-width: 24px; margin: 0; cursor: pointer; }
+.big-check b { font-size: 1rem; }
+.seg-cushion { background: repeating-linear-gradient(135deg, var(--mint) 0 4px, color-mix(in srgb, var(--mint) 35%, transparent) 4px 8px); }
+.seg-other-cushion { background: repeating-linear-gradient(135deg, var(--muted) 0 4px, color-mix(in srgb, var(--muted) 35%, transparent) 4px 8px); }
+.small-note { font-size: .8rem; margin: 8px 0 0; }
+
+/* --- ссылка на график сделки --- */
+.coin-link { padding: 0; border: 0; background: none; color: var(--ink); font: inherit; cursor: pointer; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
+.coin-link:hover { color: var(--mint); background: none; }
+
+/* --- окно сделки с графиком --- */
+.tc-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(4, 7, 9, .72); display: flex; align-items: flex-start; justify-content: center; padding: 4vh 16px; overflow-y: auto; }
+.tc-dialog { width: min(920px, 100%); background: var(--panel); border: 1px solid var(--border-2); border-radius: 14px; padding: 18px; box-shadow: 0 24px 60px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 14px; }
+.tc-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tc-head h2 { margin: 0; font-size: 1.25rem; }
+.tc-head h2 small { color: var(--muted); font-weight: 500; font-size: .8rem; margin-left: 2px; }
+.tc-head .chip { margin: 0; }
+.tc-status { font-size: .78rem; color: var(--muted); }
+.tc-status.live { color: var(--mint); }
+.tc-int { margin-left: auto; }
+.tc-close { font-size: 1rem; width: 36px; height: 36px; justify-content: center; }
+.tc-chart { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); min-height: 200px; }
+.tc-wait { padding: 80px 0; text-align: center; margin: 0; }
+.tc-svg { display: block; width: 100%; height: auto; }
+.tc-grid { stroke: var(--border); stroke-width: 1; }
+.tc-axis { fill: var(--muted); font-size: 11px; }
+.tc-span { fill: var(--mint-soft); opacity: .45; }
+.tc-up line, .tc-up rect { stroke: var(--up); fill: var(--up); }
+.tc-down line, .tc-down rect { stroke: var(--down); fill: var(--down); }
+.tc-up line, .tc-down line { stroke-width: 1; }
+.tc-pending { stroke: var(--warn); stroke-dasharray: 2 4; opacity: .55; }
+.tc-level { stroke-width: 1.2; stroke-dasharray: 5 4; }
+.lv-avg { --c: #b49cff; } .lv-win { --c: var(--up); } .lv-loss { --c: var(--down); } .lv-now { --c: var(--soft); } .lv-be { --c: #5cc8e6; } .lv-liq { --c: #ff5d6c; }
+.tc-level { stroke: var(--c); }
+.tc-tag rect { fill: var(--c); }
+.tc-tag text { fill: #0b1114; font-size: 11px; font-weight: 650; }
+.tc-tag .tc-tag-name { fill: var(--c); font-weight: 600; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+.tc-mark { stroke: #0b1114; stroke-width: 1.4; stroke-linejoin: round; }
+.m-entry { fill: var(--warn); } .m-dca { fill: color-mix(in srgb, var(--warn) 70%, #fff); } .m-win { fill: var(--up); } .m-loss { fill: var(--down); }
+.tc-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: -4px 0 0; padding: 0; font-size: .8rem; color: var(--muted); }
+.tc-legend li { display: flex; align-items: center; gap: 6px; }
+.tc-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.lg-entry { background: var(--warn); } .lg-dca { background: color-mix(in srgb, var(--warn) 70%, #fff); } .lg-win { background: var(--up); } .lg-loss { background: var(--down); }
+.lg-avg { background: #b49cff; height: 2px !important; } .lg-pending { background: var(--warn); height: 2px !important; opacity: .6; }
+.tc-result { border: 1px solid currentColor; border-radius: var(--r); padding: 14px; text-align: center; display: flex; flex-direction: column; gap: 2px; background: color-mix(in srgb, currentColor 6%, transparent); }
+.tc-result strong { font-size: 1.8rem; font-weight: 700; }
+.tc-result span { font-size: .85rem; opacity: .85; }
+.tc-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 20px; margin: 0; }
+.tc-facts div { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.tc-facts dt { color: var(--muted); }
+.tc-facts dd { margin: 0; font-weight: 600; white-space: nowrap; }
+@media (max-width: 640px) {
+  .tc-backdrop { padding: 0; }
+  .tc-dialog { border-radius: 0; min-height: 100%; padding: 14px 12px; }
+  .tc-int { margin-left: 0; order: 5; }
+  .tc-close { margin-left: auto; }
+}

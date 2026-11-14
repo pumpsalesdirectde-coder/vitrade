@@ -12,7 +12,7 @@ export const LIMITS = { accounts: 10, botsPerAccount: 20, steps: [1, 8], leverag
 export const DEFAULT_CONFIG = {
   name: "Авто-бот", symbol: "BTCUSDT", mode: "auto", direction: "SHORT", budget: "500", leverage: 5, steps: 8,
   spacingPct: "4.5", tpPct: "1.25", slPct: "100", feeRate: "0.00055", slippageRate: "0.0002",
-  marginAuto: false, marginCap: "100", exclusions: [],
+  marginAuto: true, marginCap: "100", exclusions: [],
   stages: { RSI_SHORT: false, RSI_LONG: false, PUMP: false, EARLY: true, FLIP: true, DUMP: true, CRASH: false },
 };
 

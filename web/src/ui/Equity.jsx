@@ -21,7 +21,7 @@ export default function Equity({ points, initial }) {
   const last = data.at(-1)[1];
   return (
     <figure className="equity">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Капитал ${money(last)} USDT`}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Капитал ${money(last)}`}>
         <line className="eq-base" x1="0" x2={W} y1={Y(base)} y2={Y(base)} />
         <path className={`eq-line ${last >= base ? "up" : "down"}`} d={line} vectorEffect="non-scaling-stroke" />
       </svg>

@@ -1,5 +1,7 @@
 import { useState } from "react";
+import TradeChart from "../ui/TradeChart.jsx";
 import { CLOSE_REASON, coin, duration, entryLabel, money, price, signed, tone, when } from "../format.js";
+import Hint from "../ui/Hint.jsx";
 
 const result = (c, mark) => {
   const base = Number(c.realized) + Number(c.funding) - Number(c.fees);
@@ -10,6 +12,7 @@ const result = (c, mark) => {
 
 export default function Trades({ account: a }) {
   const [tab, setTab] = useState("open");
+  const [chart, setChart] = useState(null);
   const names = Object.fromEntries(a.bots.map((b) => [b.id, b.config.name]));
   const marks = Object.fromEntries(a.positions.map((p) => [p.id, p.mark]));
   const all = a.cycles.map((c) => ({ ...c, total: result(c, marks[c.id] ?? c.lastMark), mark: marks[c.id] ?? c.lastMark, label: entryLabel(c) }));
@@ -34,7 +37,7 @@ export default function Trades({ account: a }) {
         {Object.keys(by).length === 0 ? <p className="empty-line">Сделок ещё не было.</p> : (
           <div className="table-wrap">
             <table className="grid-table compact">
-              <thead><tr><th>Стратегия</th><th className="num">Сделок</th><th className="num">Открыто</th><th className="num">Закрыто в плюс</th><th className="num">Итог, USDT</th><th className="bar-col" aria-hidden="true" /></tr></thead>
+              <thead><tr><th>Стратегия</th><th className="num">Сделок</th><th className="num">Открыто</th><th className="num">Закрыто в плюс</th><th className="num">Итог, $</th><th className="bar-col" aria-hidden="true" /></tr></thead>
               <tbody>
                 {Object.entries(by).sort((x, y) => y[1].total - x[1].total).map(([k, v]) => {
                   const max = Math.max(...Object.values(by).map((x) => Math.abs(x.total)), 1e-9);
@@ -72,8 +75,8 @@ export default function Trades({ account: a }) {
             <table className="grid-table">
               <thead>
                 <tr>
-                  <th>Монета</th><th>Вход по</th><th>Бот</th><th className="num">Шаги</th><th className="num">Первый вход</th><th className="num">Средняя</th>
-                  <th className="num">{tab === "open" ? "Цена сейчас" : "Причина"}</th><th className="num">По цене</th><th className="num">Фандинг</th><th className="num">Комиссии</th><th className="num">Итог</th>
+                  <th>Монета</th><th>Вход по</th><th>Бот</th><th className="num">Шаги</th><th className="num"><Hint term="anchor">Первый вход</Hint></th><th className="num"><Hint term="average">Средняя</Hint></th>
+                  <th className="num">{tab === "open" ? "Цена сейчас" : "Причина"}</th><th className="num"><Hint term="byPrice">По цене</Hint></th><th className="num"><Hint term="funding">Фандинг</Hint></th><th className="num"><Hint term="fees">Комиссии</Hint></th><th className="num"><Hint term="total">Итог</Hint></th>
                   <th>{tab === "open" ? "Открыта" : "Закрыта"}</th><th>Длилась</th>
                 </tr>
               </thead>
@@ -82,7 +85,7 @@ export default function Trades({ account: a }) {
                   const byPrice = c.total - Number(c.funding) + Number(c.fees);
                   return (
                     <tr key={c.id}>
-                      <td><strong>{coin(c.symbol)}</strong> <span className={`side ${c.direction === "LONG" ? "long" : "short"}`}>{c.direction === "LONG" ? "Л" : "Ш"}</span></td>
+                      <td><button className="coin-link" onClick={() => setChart(c)} title="Открыть график сделки"><strong>{coin(c.symbol)}</strong></button> <span className={`side ${c.direction === "LONG" ? "long" : "short"}`}>{c.direction === "LONG" ? "Л" : "Ш"}</span></td>
                       <td><span className="chip">{c.label}</span></td>
                       <td className="muted">{names[c.botId] || "удалён"}</td>
                       <td className="num">{c.usedSteps}/{c.config.steps}</td>
@@ -103,6 +106,7 @@ export default function Trades({ account: a }) {
           </div>
         )}
       </section>
+      {chart && <TradeChart account={a} cycle={chart} position={a.positions.find((p) => p.id === chart.id)} onClose={() => setChart(null)} />}
     </div>
   );
 }

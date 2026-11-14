@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { post } from "../api.js";
 import { STRATEGY, STRATEGY_ORDER, botStatus, coin, money, signed, tone } from "../format.js";
+import Hint from "../ui/Hint.jsx";
 
 function strategies(cfg) {
   if (cfg.mode === "manual") return `Вручную · ${coin(cfg.symbol)} ${cfg.direction === "LONG" ? "лонг" : "шорт"}`;
@@ -72,7 +73,7 @@ export default function Bots({ account: a, refresh }) {
         <div className="table-wrap">
           <table className="grid-table">
             <thead>
-              <tr><th>Бот</th><th>Стратегии входа</th><th>Состояние</th><th>Позиция</th><th className="num">Бюджет × плечо</th><th className="num">Закрыто</th><th className="num">Итог закрытых</th><th className="num">Плавающий</th><th /></tr>
+              <tr><th>Бот</th><th>Стратегии входа</th><th>Состояние</th><th>Позиция</th><th className="num"><Hint term="budget">Бюджет</Hint> × <Hint term="leverage">плечо</Hint></th><th className="num">Закрыто</th><th className="num"><Hint term="realized">Итог закрытых</Hint></th><th className="num"><Hint term="unrealized">Плавающий</Hint></th><th /></tr>
             </thead>
             <tbody>
               {shown.map(({ b, c, done, result, st }) => (

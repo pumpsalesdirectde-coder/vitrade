@@ -1,6 +1,9 @@
 import Equity from "../ui/Equity.jsx";
 import Ruler from "../ui/Ruler.jsx";
 import { coin, duration, entryLabel, money, pct, price, signed, tone, when } from "../format.js";
+import Hint from "../ui/Hint.jsx";
+import TradeChart from "../ui/TradeChart.jsx";
+import { useState } from "react";
 
 const EVENT = {
   FILL: "Сделка", MARGIN_ADD: "Подушка", MARGIN_RETURN: "Подушка", FUNDING: "Фандинг", COMMAND: "Команда",
@@ -28,21 +31,22 @@ export default function Overview({ account: a }) {
   const realized = closed.reduce((s, c) => s + Number(c.realized) + Number(c.funding) - Number(c.fees), 0);
   const wins = closed.filter((c) => Number(c.realized) + Number(c.funding) - Number(c.fees) > 0).length;
 
+  const [chart, setChart] = useState(null);
   return (
     <div className="overview">
       <section className="statement" aria-label="Состояние счёта">
         <div className="lead">
-          <span className="muted">Капитал</span>
+          <span className="muted"><Hint term="equity">Капитал</Hint></span>
           <strong className="big">{money(a.equity)}</strong>
-          <span className={`delta ${tone(a.net)}`}>{signed(a.net)} USDT с начала · {signed((Number(a.net) / Number(a.initial)) * 100, 2)}%</span>
+          <span className={`delta ${tone(a.net)}`}>{signed(a.net)} с начала · {signed((Number(a.net) / Number(a.initial)) * 100, 2, "%")}</span>
         </div>
         <dl className="facts">
-          <div><dt>Свободно</dt><dd>{money(a.free)}</dd></div>
-          <div><dt>Маржа в позициях</dt><dd>{money(a.margin)}</dd></div>
-          <div><dt>Плавающий результат</dt><dd className={tone(a.unrealized)}>{signed(a.unrealized)}</dd></div>
+          <div><dt><Hint term="free">Свободно</Hint></dt><dd>{money(a.free)}</dd></div>
+          <div><dt><Hint term="margin">Маржа в позициях</Hint></dt><dd>{money(a.margin)}</dd></div>
+          <div><dt><Hint term="unrealized">Плавающий результат</Hint></dt><dd className={tone(a.unrealized)}>{signed(a.unrealized)}</dd></div>
           <div><dt>Закрыто сделок</dt><dd>{closed.length} <small className="muted">в плюс {wins}</small></dd></div>
-          <div><dt>Итог закрытых</dt><dd className={tone(realized)}>{signed(realized)}</dd></div>
-          <div><dt>Макс. просадка</dt><dd>{pct(a.maxDrawdown, 2)}</dd></div>
+          <div><dt><Hint term="realized">Итог закрытых</Hint></dt><dd className={tone(realized)}>{signed(realized)}</dd></div>
+          <div><dt><Hint term="drawdown">Макс. просадка</Hint></dt><dd>{pct(a.maxDrawdown, 2)}</dd></div>
         </dl>
         <Equity points={a.snapshots} initial={a.initial} />
       </section>
@@ -59,16 +63,16 @@ export default function Overview({ account: a }) {
             {positions.map((p) => (
               <li key={p.id} className="position">
                 <div className="pos-id">
-                  <strong>{coin(p.symbol)}</strong>
+                  <button className="coin-link" onClick={() => setChart(p)} title="Открыть график сделки"><strong>{coin(p.symbol)}</strong></button>
                   <span className={`side ${p.direction === "LONG" ? "long" : "short"}`}>{p.direction === "LONG" ? "Лонг" : "Шорт"} ×{p.config.leverage}</span>
                   <span className="muted">{bots[p.botId]?.config.name || "—"} · {entryLabel(p)}</span>
                 </div>
                 <dl className="pos-nums">
                   <div><dt>Цена</dt><dd>{price(p.mark)}</dd></div>
-                  <div><dt>Средняя</dt><dd>{price(p.average)}</dd></div>
+                  <div><dt><Hint term="average">Средняя</Hint></dt><dd>{price(p.average)}</dd></div>
                   <div><dt>Шаги</dt><dd>{p.usedSteps}/{p.config.steps}</dd></div>
                   <div><dt>В сделке</dt><dd>{duration(p.openedAt)}</dd></div>
-                  <div><dt>Итог</dt><dd className={tone(p.net)}><b>{signed(p.net)}</b></dd></div>
+                  <div><dt><Hint term="total">Итог</Hint></dt><dd className={tone(p.net)}><b>{signed(p.net)}</b></dd></div>
                 </dl>
                 <Ruler p={p} />
               </li>
@@ -93,6 +97,7 @@ export default function Overview({ account: a }) {
           ))}
         </ol>
       </section>
+      {chart && <TradeChart account={a} cycle={chart} position={chart} onClose={() => setChart(null)} />}
     </div>
   );
 }

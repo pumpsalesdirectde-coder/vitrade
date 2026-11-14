@@ -2,11 +2,12 @@ const nf = (d) => new Intl.NumberFormat("ru-RU", { minimumFractionDigits: d, max
 const cache = {};
 const f = (d) => (cache[d] ||= nf(d));
 
-export const money = (v, d = 2) => (v === null || v === undefined || v === "" ? "—" : f(d).format(Number(v)));
-export const signed = (v, d = 2) => {
+// Денежные суммы выводятся со знаком $ (1 USDT ≈ 1 $). unit = "" — просто число.
+export const money = (v, d = 2, unit = "\u00a0$") => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? "—" : f(d).format(Number(v)) + unit);
+export const signed = (v, d = 2, unit = "\u00a0$") => {
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
-  return (n > 0 ? "+" : n < 0 ? "−" : "") + f(d).format(Math.abs(n));
+  return (n > 0 ? "+" : n < 0 ? "−" : "") + f(d).format(Math.abs(n)) + unit;
 };
 
 /** Цена с разумным числом знаков: 67 412,5 / 0,08231 / 0,0000123. */

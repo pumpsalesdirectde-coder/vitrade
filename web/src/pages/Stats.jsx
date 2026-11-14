@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { CLOSE_REASON, coin, duration, entryLabel, money, pct, price, signed, tone, when } from "../format.js";
+import Hint from "../ui/Hint.jsx";
+import TradeChart from "../ui/TradeChart.jsx";
 
 const DAY = 864e5;
 const startOfDay = (t) => {
@@ -74,7 +76,7 @@ function Curve({ list }) {
   const Y = (v) => H - ((v - lo + pad) / (hi - lo + 2 * pad)) * H;
   const d = pts.map(([t, v], i) => `${i ? "L" : "M"}${X(t).toFixed(1)} ${Y(v).toFixed(1)}`).join(" ");
   return (
-    <svg className="curve" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Накопленный результат ${signed(s)} USDT`}>
+    <svg className="curve" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Накопленный результат ${signed(s)}`}>
       <line className="eq-base" x1="0" x2={W} y1={Y(0)} y2={Y(0)} />
       <path className={`eq-line ${s >= 0 ? "up" : "down"}`} d={d} vectorEffect="non-scaling-stroke" />
     </svg>
@@ -94,6 +96,7 @@ function toCsv(list, names) {
 export default function Stats({ account: a }) {
   const [period, setPeriod] = useState("all");
   const [tab, setTab] = useState("analytics");
+  const [chart, setChart] = useState(null);
   const [filter, setFilter] = useState({ q: "", dir: "", reason: "", label: "" });
   const names = Object.fromEntries(a.bots.map((b) => [b.id, b.config.name]));
   const [from, to] = range(period);
@@ -151,17 +154,17 @@ export default function Stats({ account: a }) {
           <section className="panel result-panel">
             <div>
               <span className="muted">Результат закрытых сделок</span>
-              <strong className={`big ${tone(total)}`}>{signed(total)} <small>USDT</small></strong>
-              <span className="muted">{signed((total / budget) * 100, 2)}% к сумме бюджетов ботов ({money(budget, 0)} USDT)</span>
+              <strong className={`big ${tone(total)}`}>{signed(total)}</strong>
+              <span className="muted">{signed((total / budget) * 100, 2, "%")} к сумме бюджетов ботов ({money(budget, 0)})</span>
             </div>
             <Curve list={closed} />
           </section>
           <div className="tiles">
             <div className="tile"><span>Сделок закрыто</span><b>{closed.length}</b><small>в плюс {wins.length} · в минус {losses.length}</small></div>
             <div className="tile"><span>Доля прибыльных</span><b>{closed.length ? pct((wins.length / closed.length) * 100, 0) : "—"}</b><small>за выбранный период</small></div>
-            <div className="tile"><span>Средняя сделка</span><b className={tone(avg(closed, (c) => c.net))}>{closed.length ? signed(avg(closed, (c) => c.net)) : "—"}</b><small>плюс {signed(avg(wins, (c) => c.net))} · минус {signed(avg(losses, (c) => c.net))}</small></div>
+            <div className="tile"><span><Hint term="total">Средняя сделка</Hint></span><b className={tone(avg(closed, (c) => c.net))}>{closed.length ? signed(avg(closed, (c) => c.net)) : "—"}</b><small>плюс {signed(avg(wins, (c) => c.net))} · минус {signed(avg(losses, (c) => c.net))}</small></div>
             <div className="tile"><span>Среднее время</span><b>{closed.length ? duration(0, avg(closed, (c) => c.closedAt - c.openedAt)) : "—"}</b><small>от входа до выхода</small></div>
-            <div className="tile"><span>Фандинг и комиссии</span><b className={tone(costs)}>{signed(costs)}</b><small>уже учтены в результате</small></div>
+            <div className="tile"><span><Hint term="funding">Фандинг и комиссии</Hint></span><b className={tone(costs)}>{signed(costs)}</b><small>уже учтены в результате</small></div>
           </div>
           <div className="two-col">
             <Breakdown title="По ботам" rows={group(closed, (c) => names[c.botId] || "удалённый бот")} />
@@ -196,12 +199,12 @@ export default function Stats({ account: a }) {
           {journal.length === 0 ? <p className="empty-line">Закрытых сделок под эти условия нет.</p> : (
             <div className="table-wrap">
               <table className="grid-table">
-                <thead><tr><th>Закрыта</th><th>Монета</th><th>Вход по</th><th>Бот</th><th className="num">Шаги</th><th className="num">Первый вход</th><th className="num">Средняя</th><th>Причина</th><th className="num">Фандинг</th><th className="num">Итог</th><th className="num">% бюджета</th><th>Длилась</th></tr></thead>
+                <thead><tr><th>Закрыта</th><th>Монета</th><th>Вход по</th><th>Бот</th><th className="num">Шаги</th><th className="num"><Hint term="anchor">Первый вход</Hint></th><th className="num"><Hint term="average">Средняя</Hint></th><th>Причина</th><th className="num"><Hint term="funding">Фандинг</Hint></th><th className="num"><Hint term="total">Итог</Hint></th><th className="num">% бюджета</th><th>Длилась</th></tr></thead>
                 <tbody>
                   {journal.map((c) => (
                     <tr key={c.id}>
                       <td>{when(c.closedAt)}</td>
-                      <td><strong>{coin(c.symbol)}</strong> <span className={`side ${c.direction === "LONG" ? "long" : "short"}`}>{c.direction === "LONG" ? "Л" : "Ш"}</span></td>
+                      <td><button className="coin-link" onClick={() => setChart(c)} title="Открыть график сделки"><strong>{coin(c.symbol)}</strong></button> <span className={`side ${c.direction === "LONG" ? "long" : "short"}`}>{c.direction === "LONG" ? "Л" : "Ш"}</span></td>
                       <td><span className="chip">{c.label}</span></td>
                       <td className="muted">{names[c.botId] || "удалён"}</td>
                       <td className="num">{c.usedSteps}/{c.config.steps}</td>
@@ -210,7 +213,7 @@ export default function Stats({ account: a }) {
                       <td>{CLOSE_REASON[c.closeReason] || c.closeReason}</td>
                       <td className={`num ${tone(c.funding)}`}>{signed(c.funding, 3)}</td>
                       <td className={`num ${tone(c.net)}`}><b>{signed(c.net)}</b></td>
-                      <td className={`num ${tone(c.net)}`}>{signed((c.net / Number(c.config.budget)) * 100, 2)}%</td>
+                      <td className={`num ${tone(c.net)}`}>{signed((c.net / Number(c.config.budget)) * 100, 2, "%")}</td>
                       <td>{duration(c.openedAt, c.closedAt)}</td>
                     </tr>
                   ))}
@@ -227,7 +230,7 @@ export default function Stats({ account: a }) {
           <div className="table-wrap">
             <table className="grid-table calendar">
               <thead>
-                <tr><th>Бот</th>{days.map((d) => <th key={d} className="num">{new Date(d).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })}</th>)}<th className="num">Итог</th></tr>
+                <tr><th>Бот</th>{days.map((d) => <th key={d} className="num">{new Date(d).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })}</th>)}<th className="num"><Hint term="total">Итог</Hint></th></tr>
               </thead>
               <tbody>
                 {a.bots.map((b) => {
@@ -236,7 +239,7 @@ export default function Stats({ account: a }) {
                   return (
                     <tr key={b.id}>
                       <td><strong>{b.config.name}</strong></td>
-                      {days.map((d) => <td key={d} className={`num cell ${row[d] ? tone(row[d]) : "zero"}`}>{row[d] ? signed(row[d], 1) : "·"}</td>)}
+                      {days.map((d) => <td key={d} className={`num cell ${row[d] ? tone(row[d]) : "zero"}`}>{row[d] ? signed(row[d], 1, "") : "·"}</td>)}
                       <td className={`num ${tone(sum)}`}><b>{sum ? signed(sum) : "—"}</b></td>
                     </tr>
                   );
@@ -246,6 +249,7 @@ export default function Stats({ account: a }) {
           </div>
         </section>
       )}
+      {chart && <TradeChart account={a} cycle={chart} onClose={() => setChart(null)} />}
     </div>
   );
 }

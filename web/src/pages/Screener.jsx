@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { usePoll } from "../api.js";
+import Hint from "../ui/Hint.jsx";
 import { STRATEGY, coin, money, pct, price, signed, tone, when } from "../format.js";
 
 const STAGES = ["PUMP", "EARLY", "FLIP", "DUMP", "CRASH"];
@@ -47,20 +48,20 @@ export default function Screener({ state }) {
           <div className="table-wrap">
             <table className="grid-table">
               <thead>
-                <tr><th>Монета</th><th className="num">Цена</th><th className="num">24 ч</th><th className="num">Оборот 24 ч</th><th>Стадия</th><th className="num">Памп</th><th className="num">От вершины</th><th className="num">RSI 14</th><th className="num">Фандинг</th><th>На счетах</th></tr>
+                <tr><th>Монета</th><th className="num">Цена</th><th className="num">24 ч</th><th className="num"><Hint term="turnover">Оборот 24 ч</Hint></th><th><Hint term="stage">Стадия</Hint></th><th className="num">Памп</th><th className="num">От вершины</th><th className="num"><Hint term="rsi">RSI 14</Hint></th><th className="num"><Hint term="funding">Фандинг</Hint></th><th>На счетах</th></tr>
               </thead>
               <tbody>
                 {rows.slice(0, 300).map((x) => (
                   <tr key={x.symbol}>
                     <td><strong>{coin(x.symbol)}</strong></td>
                     <td className="num">{price(x.mark)}</td>
-                    <td className={`num ${tone(x.change)}`}>{signed(x.change, 1)}%</td>
-                    <td className="num">{money(Number(x.turnover) / 1e6, 1)} млн</td>
+                    <td className={`num ${tone(x.change)}`}>{signed(x.change, 1, "%")}</td>
+                    <td className="num">{money(Number(x.turnover) / 1e6, 1, "")} млн $</td>
                     <td>{x.stage ? <span className={`chip stage-${x.stage}`}>{STRATEGY[x.stage].name}</span> : <span className="muted">—</span>}</td>
                     <td className="num">{x.stagePump !== undefined && x.stage ? pct(x.stagePump * 100, 0) : "—"}</td>
                     <td className="num">{x.stageDrop !== undefined && x.stage ? pct(x.stageDrop * 100, 1) : "—"}</td>
                     <td className="num">{x.rsi !== undefined && x.eligible ? <span className={x.rsi >= 70 ? "down" : x.rsi <= 30 ? "up" : ""}>{x.rsi.toFixed(0)}</span> : "—"}</td>
-                    <td className={`num ${tone(-x.fundingRate)}`}>{x.fundingRate !== undefined ? signed(Number(x.fundingRate) * 100, 4) + "%" : "—"}</td>
+                    <td className={`num ${tone(-x.fundingRate)}`}>{x.fundingRate !== undefined ? signed(Number(x.fundingRate) * 100, 4, "%") : "—"}</td>
                     <td className="muted">{held[x.symbol]?.join(", ") || ""}</td>
                   </tr>
                 ))}

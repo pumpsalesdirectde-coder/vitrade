@@ -9,7 +9,7 @@ import { D, positive } from "./engine/accounting.js";
 import { collectCandles } from "./market/bybit.js";
 import * as auth from "./auth.js";
 
-const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".woff": "font/woff", ".png": "image/png", ".ico": "image/x-icon" };
+const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".woff": "font/woff", ".png": "image/png", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json", ".json": "application/json" };
 const fail = (message, status = 400) => Object.assign(Error(message), { status });
 
 function thin(points, n = 240) {
@@ -129,7 +129,10 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
       const symbol = url.searchParams.get("symbol") || "";
       const interval = url.searchParams.get("interval") || "15";
       if (!/^[A-Z0-9]{1,24}USDT$/.test(symbol) || !["1", "5", "15", "60", "240", "D"].includes(interval)) throw fail("Неверная монета или интервал");
-      return { symbol, interval, candles: await collectCandles(fetcher, symbol, interval) };
+      const limit = Math.min(1000, Math.max(20, Number(url.searchParams.get("limit")) || 200));
+      const end = Number(url.searchParams.get("end")) || 0;
+      if (end && (end < 1.5e12 || end > Date.now() + 864e5)) throw fail("Неверная дата");
+      return { symbol, interval, candles: await collectCandles(fetcher, symbol, interval, limit, end) };
     }],
     ["POST", /^\/api\/accounts$/, async (ctx) => {
       const p = await body(ctx.req);

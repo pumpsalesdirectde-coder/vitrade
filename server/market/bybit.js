@@ -100,7 +100,8 @@ export async function collectFunding(fetcher, symbol, at) {
 }
 
 /** Свечи для графика позиции. */
-export async function collectCandles(fetcher, symbol, interval = "15", limit = 200) {
-  const data = await json(fetcher, `/v5/market/kline?category=linear&symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`);
+export async function collectCandles(fetcher, symbol, interval = "15", limit = 200, end = 0) {
+  const tail = end > 0 ? `&end=${Math.floor(end)}` : "";
+  const data = await json(fetcher, `/v5/market/kline?category=linear&symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}${tail}`);
   return data.result.list.map((r) => ({ t: Number(r[0]), o: +r[1], h: +r[2], l: +r[3], c: +r[4] })).sort((a, b) => a.t - b.t);
 }

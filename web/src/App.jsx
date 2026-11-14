@@ -14,9 +14,10 @@ import Exchanges from "./pages/Exchanges.jsx";
 import Profile from "./pages/Profile.jsx";
 import Security from "./pages/Security.jsx";
 import Guide from "./pages/Guide.jsx";
+import Hint from "./ui/Hint.jsx";
 
 const MENU = [
-  ["Торговля", [["overview", "Обзор"], ["screener", "Скринер"], ["bots", "Боты"], ["trades", "Сделки"], ["stats", "Статистика"]]],
+  ["Торговля", [["overview", "Обзор"], ["screener", "Чекер"], ["bots", "Боты"], ["trades", "Сделки"], ["stats", "Статистика"]]],
   ["Счета", [["exchanges", "Биржи и счета"]]],
   ["Аккаунт", [["profile", "Профиль и настройки"], ["security", "Безопасность"]]],
   ["Помощь", [["guide", "Гайд"]]],
@@ -164,13 +165,13 @@ export default function App() {
           )}
           <div className="top-right">
             <MarketStatus market={state?.market} />
-            <span className="paper" title="Все сделки виртуальные: реальные ордера не отправляются">Paper</span>
+            <Hint term="paper"><span className="paper">Paper</span></Hint>
           </div>
         </header>
         {error && <div className="banner">{error}</div>}
         {needsAccount && account?.reserveShortfall && <div className="banner">На счёте не хватает свободных средств под бюджеты ботов — новые сделки и докупки остановлены.</div>}
         <main>{content}</main>
-        {needsAccount && account && <footer className="foot">Капитал счёта «{account.name}»: <b>{money(account.equity)} USDT</b></footer>}
+        {needsAccount && account && <footer className="foot">Капитал счёта «{account.name}»: <b>{money(account.equity)}</b></footer>}
       </div>
     </div>
   );
