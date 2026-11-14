@@ -6,10 +6,13 @@ import {
   reserved, free, liquidation, lr, breakEven,
 } from "./accounting.js";
 import { STRATEGY_KEYS, stageDirection } from "./signals.js";
+import { FORK_DEFAULTS, normalizeFork, observeFork } from './fork.js';
+import { advancePairs, tryOpenFork, requestPairClose, pairView } from './fork-lifecycle.js';
 
 export const LIMITS = { accounts: 10, botsPerAccount: 20, steps: [1, 8], leverage: [1, 10] };
 
 export const DEFAULT_CONFIG = {
+  fork: FORK_DEFAULTS,
   name: "Авто-бот", symbol: "BTCUSDT", mode: "auto", direction: "SHORT", budget: "500", leverage: 5, steps: 8,
   spacingPct: "4.5", tpPct: "1.25", slPct: "100", feeRate: "0.00055", slippageRate: "0.0002",
   marginAuto: true, marginCap: "100", exclusions: [],
@@ -35,12 +38,13 @@ export function event(a, type, message, now, b, c, amount) {
 
 const fresh = (q, a, now) => !!q && q.source === a.source && positive(q.mark) && q.at <= now + 1e3 && now - q.at <= 15e3;
 
-function increase(a, b, c, q, amount, grid, now) {
+function increase(a, b, c, q, amount, grid, now, exactQuantity) {
   const p = executionPrice(c, q, true);
   if (!p || D(a.cash).lt(amount)) return false;
-  const qty = D(amount).times(c.config.leverage).div(p).toDecimalPlaces(12, Decimal.ROUND_DOWN);
+  const qty = exactQuantity ? D(exactQuantity) : D(amount).times(c.config.leverage).div(p).toDecimalPlaces(12, Decimal.ROUND_DOWN);
   if (qty.lte(0)) return false;
   const m = qty.times(p).div(c.config.leverage);
+  if (D(a.cash).lt(m)) return false;
   const fee = qty.times(p).times(c.config.feeRate);
   const old = D(c.quantity);
   c.average = str(old.times(c.average).plus(qty.times(p)).div(old.plus(qty)));
@@ -148,6 +152,7 @@ function openCycle(a, b, q, now) {
   if (increase(a, b, c, q, str(D(c.config.budget).div(c.config.steps)), true, now)) {
     a.cycles.push(c);
     b.currentCycleId = c.id;
+    if (c.direction === 'SHORT') observeFork(c, q, normalizeFork(b.config.fork));
     b.lastReason = "Сделка открыта";
     if (b.config.mode !== "manual") b.lastSignal[q.symbol] = q.pickWhy === "RSI" ? q.signalAt || now : now;
   }
@@ -177,8 +182,11 @@ function pickAuto(a, b, candidates, now) {
 /** Один шаг жизни счёта: вход, контроль ликвидации, TP/SL, команды, докупки по сетке, снимок капитала. */
 export function advance(a, quotes, now) {
   if (a.archived) return;
+  const forkOps = { increase, reduce, event, marginControl };
+  advancePairs(a, quotes, now, forkOps);
   for (const b of a.bots) {
     const c = a.cycles.find((x) => x.id === b.currentCycleId);
+    if (b.forkParentId || c?.forkId) continue;
     if (!c) {
       if (!b.enabled || b.paused || b.finish) continue;
       if (a.walletBlocked) {
@@ -239,6 +247,7 @@ export function advance(a, quotes, now) {
         b.pending = b.pending.filter((x) => x.id !== p.id);
       }
     }
+    if (tryOpenFork(a, b, c, q, now, forkOps)) continue;
     guardCheck(a, b, c, q, now);
     if (c.status !== "OPEN" || b.paused || c.dcaLocked || a.fundingGaps.length || free(a).lt(0)) continue;
     while (c.usedSteps < c.config.steps) {
@@ -355,12 +364,13 @@ export function validateConfig(input) {
   const st = c.stages && typeof c.stages === "object" ? c.stages : { ["RSI_" + c.direction]: true };
   c.stages = Object.fromEntries(STRATEGY_KEYS.map((k) => [k, st[k] === true]));
   if (c.mode !== "manual" && !Object.values(c.stages).some(Boolean)) throw Error("Отметьте хотя бы одну стратегию");
+  c.fork = normalizeFork(c.fork);
   c.name = c.name.trim();
   return c;
 }
 
 export function createBot(a, config, now) {
-  if (a.archived || a.bots.length >= LIMITS.botsPerAccount) throw Error(`На счёте разрешено до ${LIMITS.botsPerAccount} ботов`);
+  if (a.archived || a.bots.filter(b => !b.forkParentId).length >= LIMITS.botsPerAccount) throw Error(`На счёте разрешено до ${LIMITS.botsPerAccount} ботов`);
   const b = {
     id: randomUUID(), config: validateConfig(config), version: 1, enabled: false, paused: false, finish: false,
     currentCycleId: null, activatedAt: 0, lastSignal: {}, lastReason: "Не запущен", pending: [],
@@ -374,7 +384,19 @@ export function command(a, botId, action, payload = {}, now = Date.now()) {
   const b = a.bots.find((x) => x.id === botId);
   if (!b || a.archived) throw Error("Бот не найден");
   const c = a.cycles.find((x) => x.id === b.currentCycleId);
+  const pair = (a.forks || []).find(f => f.status !== 'CLOSED' && [f.parentBotId, f.childBotId].includes(b.id));
+  if (b.forkParentId && action !== 'close') throw Error('Ботом вилки управляет связанная пара');
+  if (pair && ['add','partial'].includes(action)) throw Error('Объём активной вилки изменять нельзя — закройте обе позиции');
+  if (pair && action === 'close') {
+    requestPairClose(pair, 'FORK_MANUAL');
+    event(a, 'COMMAND', 'Закрыть обе позиции вилки', now, b, c);
+    return;
+  }
   switch (action) {
+    case 'fork-settings':
+      b.config.fork = normalizeFork(payload);
+      b.version++;
+      break;
     case "start":
       if (b.enabled || c) throw Error("Бот уже запущен");
       if (a.fundingGaps.length) throw Error("Ожидается сверка фандинга");
@@ -441,7 +463,9 @@ export function summarize(a, quotes) {
   const balance = D(a.cash).plus(margin);
   const equity = balance.plus(pnl);
   return {
-    ...a, positions, balance: str(balance), equity: str(equity), margin: str(margin), unrealized: str(pnl),
+    ...a, bots: a.bots.map(b => ({...b, config: {...b.config, fork: normalizeFork(b.config.fork)}})),
+    forks: (a.forks || []).map(f => pairView(a, f, quotes[f.symbol])),
+    positions, balance: str(balance), equity: str(equity), margin: str(margin), unrealized: str(pnl),
     reserved: str(reserved(a)), free: str(free(a)), net: str(equity.minus(a.initial)),
     preliminary: a.fundingGaps.length > 0, reserveShortfall: free(a).lt(0),
   };

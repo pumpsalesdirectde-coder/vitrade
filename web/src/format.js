@@ -47,18 +47,24 @@ export const STRATEGY = {
 export const STRATEGY_ORDER = ["EARLY", "FLIP", "DUMP", "PUMP", "CRASH", "RSI_SHORT", "RSI_LONG"];
 
 export const entryLabel = (cycle) =>
-  cycle.stage === "RSI" ? STRATEGY[`RSI_${cycle.direction}`].short
+  cycle.forkId && cycle.direction === "LONG" ? "Вилка · лонг"
+    : cycle.stage === "RSI" ? STRATEGY[`RSI_${cycle.direction}`].short
     : cycle.stage ? STRATEGY[cycle.stage]?.short || cycle.stage
       : cycle.config?.mode === "manual" ? "Вручную" : "RSI";
 
 export const CLOSE_REASON = {
   TAKE_PROFIT: "Тейк-профит", STOP_LOSS: "Стоп-лосс", MANUAL: "Закрыта вручную", LIQUIDATION: "Ликвидация", PARTIAL: "Частично",
+  FORK_TARGET: "Вилка: общий результат достигнут", FORK_STOP: "Вилка: предел дополнительного убытка", FORK_TIMEOUT: "Вилка: истекло время",
+  FORK_MANUAL: "Вилка: обе позиции закрыты вручную", FORK_LIQUIDATION: "Вилка: ликвидация одной из сторон", FORK_ORPHAN: "Вилка: закрытие оставшейся стороны",
 };
+
+export const forkReason = (reason) => CLOSE_REASON[reason] || ({ RAPID: "Быстрый рост цены", TOTAL: "Общий рост от первого входа", OPEN: "Пара открыта", CLOSING: "Пара закрывается", CLOSED: "Пара закрыта" }[reason]) || reason || "—";
 
 /** Состояние бота простыми словами. */
 export function botStatus(b, cycle) {
   if (cycle?.status === "LIQUIDATING") return { key: "danger", text: "Ликвидация" };
   if (cycle?.status === "CLOSING") return { key: "busy", text: "Закрывается" };
+  if (cycle?.forkId) return { key: "live", text: "Вилка · совместный выход" };
   if (cycle && b.paused) return { key: "hold", text: "В позиции · докупки на паузе" };
   if (cycle?.dcaLocked) return { key: "hold", text: "В позиции · подстраховка остановила докупки" };
   if (cycle && b.finish) return { key: "busy", text: "Доводит сделку и остановится" };

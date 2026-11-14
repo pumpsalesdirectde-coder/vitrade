@@ -6,6 +6,7 @@ import Icon from "./ui/Icon.jsx";
 import Auth from "./pages/Auth.jsx";
 import Overview from "./pages/Overview.jsx";
 import Bots from "./pages/Bots.jsx";
+import Fork from "./pages/Fork.jsx";
 import Trades from "./pages/Trades.jsx";
 import BotForm from "./pages/BotForm.jsx";
 import Screener from "./pages/Screener.jsx";
@@ -19,7 +20,7 @@ import Referrals from "./pages/Referrals.jsx";
 import Hint from "./ui/Hint.jsx";
 
 const MENU = [
-  ["Торговля", [["overview", "Обзор"], ["screener", "Чекер"], ["bots", "Боты"], ["trades", "Сделки"], ["stats", "Статистика"]]],
+  ["Торговля", [["overview", "Обзор"], ["screener", "Чекер"], ["bots", "Боты"], ["fork", "Вилка"], ["trades", "Сделки"], ["stats", "Статистика"]]],
   ["Счета", [["exchanges", "Биржи и счета"]]],
   ["Финансы", [["wallet", "Кошелёк"], ["referrals", "Рефералы"]]],
   ["Аккаунт", [["profile", "Профиль и настройки"], ["security", "Безопасность"]]],
@@ -27,7 +28,7 @@ const MENU = [
 ];
 const TITLES = Object.fromEntries(MENU.flatMap(([, items]) => items));
 // разделы, где показывается выбор счёта
-const ACCOUNT_PAGES = new Set(["overview", "bots", "trades", "stats", "new", "edit"]);
+const ACCOUNT_PAGES = new Set(["overview", "bots", "fork", "trades", "stats", "new", "edit"]);
 
 function useHash() {
   const read = () => (location.hash.replace(/^#\/?/, "") || "overview").split("/");
@@ -118,6 +119,7 @@ export default function App() {
       overview: <Overview account={account} />,
       screener: <Screener state={state} />,
       bots: <Bots account={account} refresh={refresh} />,
+      fork: <Fork key={account?.id} account={account} state={state} botId={rest[0]} refresh={refresh} />,
       trades: <Trades account={account} />,
       stats: <Stats account={account} accounts={accounts} />,
       exchanges: <Exchanges state={state} refresh={refresh} onPick={pick} />,
@@ -126,8 +128,8 @@ export default function App() {
       guide: <Guide topic={rest[0]} />,
       wallet: <Wallet refresh={refresh} />,
       referrals: <Referrals />,
-      new: <BotForm account={account} state={state} refresh={refresh} />,
-      edit: <BotForm account={account} state={state} botId={rest[0]} refresh={refresh} />,
+      new: <BotForm key={`${account?.id}:new`} account={account} state={state} refresh={refresh} />,
+      edit: <BotForm key={`${account?.id}:${rest[0]}`} account={account} state={state} botId={rest[0]} refresh={refresh} />,
     }[page] || <Overview account={account} />;
   }
 
