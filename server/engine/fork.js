@@ -3,7 +3,7 @@ import { D, Decimal, str, positive, free, liquidation, executionPrice, expectedR
 import { FEE_RATE } from '../wallet.js';
 
 export const FORK_DEFAULTS = Object.freeze({
-  enabled:true, rapidPct:'20', windowSeconds:60, totalPct:'50', stepPct:null,
+  enabled:false, rapidPct:'20', windowSeconds:60, totalPct:'50', stepPct:null,
   leverage:null, lossPct:'1', capMode:'multiple', capMultiple:'2', capAmount:'1000',
   extraLossPct:'3', maxMinutes:30,
 });

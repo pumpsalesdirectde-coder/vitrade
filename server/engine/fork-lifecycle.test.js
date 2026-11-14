@@ -5,7 +5,7 @@ import {D,free} from './accounting.js';
 const quotes=(p,t)=>({XUSDT:{symbol:'XUSDT',mark:String(p),bid:String(p),ask:String(p),source:'market',at:t}});
 function setup(fork={}) {
   const a=newAccount('a','u','test','market',0,'bybit','100000');
-  const b=createBot(a,{...DEFAULT_CONFIG,mode:'manual',symbol:'XUSDT',budget:'1000',leverage:1,steps:4,spacingPct:'10',tpPct:'100',slPct:'1000',marginAuto:false,guardOn:false,feeRate:'0.00055',slippageRate:'0.0002',fork:{capMode:'fixed',capAmount:'50000',stepPct:'10',...fork}},0);
+  const b=createBot(a,{...DEFAULT_CONFIG,mode:'manual',symbol:'XUSDT',budget:'1000',leverage:1,steps:4,spacingPct:'10',tpPct:'100',slPct:'1000',marginAuto:false,guardOn:false,feeRate:'0.00055',slippageRate:'0.0002',fork:{enabled:true,capMode:'fixed',capAmount:'50000',stepPct:'10',...fork}},0);
   command(a,b.id,'start',{},0); advance(a,quotes(10,1000),1000);
   return {a,b};
 }

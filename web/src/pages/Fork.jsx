@@ -189,7 +189,7 @@ export default function Fork({ account: a, accounts = [a], onPick, state, botId,
   const history = pairs.filter((p) => p.status === "CLOSED");
 
   return <div className="fork-page">
-    <section className="panel fork-intro"><div><h2>Шорт и лонг с общей целью выхода</h2><p className="muted">Лонг рассчитывается под следующий шаг роста цены. Вилка включена по умолчанию, в том числе у ранее созданных ботов этой бумажной версии.</p></div><span className="chip paper-chip">Paper</span></section>
+    <section className="panel fork-intro"><div><h2>Шорт и лонг с общей целью выхода</h2><p className="muted">Лонг рассчитывается под следующий шаг роста цены. По умолчанию вилка выключена — включите её для нужного бота ниже.</p></div><span className="chip paper-chip">Paper</span></section>
     <section className="panel fork-selection" aria-label="Выбор счёта и бота">
       <div className="fields two">
         <label>Счёт для вилки<select value={a.id} onChange={(e) => onPick(e.target.value)}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>

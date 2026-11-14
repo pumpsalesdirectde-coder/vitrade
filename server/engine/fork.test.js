@@ -6,7 +6,7 @@ import { D } from './accounting.js';
 function fixture() {
   const config = { budget:'1000', spacingPct:'10', leverage:5, feeRate:'0.00055', slippageRate:'0.0002' };
   const c = { id:'c', direction:'SHORT', symbol:'XUSDT', status:'OPEN', quantity:'100', average:'10', anchor:'10', margin:'1000', remainingBudget:'100', realized:'0', funding:'0', fees:'0.55', config };
-  const b = {id:'b',currentCycleId:'c',pending:[],config:{...config,fork:normalizeFork({capMode:'fixed',capAmount:'10000'})}};
+  const b = {id:'b',currentCycleId:'c',pending:[],config:{...config,fork:normalizeFork({enabled:true,capMode:'fixed',capAmount:'10000'})}};
   const a = {cash:'10000',source:'market',bots:[b],cycles:[c],fundingGaps:[]};
   const q = {symbol:'XUSDT',mark:'12',bid:'12',ask:'12',source:'market',at:1000};
   return {a,b,c,q};
@@ -36,7 +36,7 @@ test('size refuses unavailable capital, limits, stale quotes and unreachable tar
   assert.match(forkPlan(a,b,c,q,1000).reason,/ликвидац/);
 });
 test('fork defaults and numeric validation',()=>{
-  assert.equal(normalizeFork().enabled,true);
+  assert.equal(normalizeFork().enabled,false);
   assert.equal(normalizeFork().rapidPct,'20');
   for (const input of [{rapidPct:'NaN'},{windowSeconds:0},{stepPct:0},{enabled:'yes'},{capMode:'bad'},{leverage:11},{lossPct:-1}]) assert.throws(()=>normalizeFork(input));
 });
@@ -47,7 +47,7 @@ test('never open a long already beyond maintenance margin due to mark/book diver
   assert.match(result.reason,/ликвидац.*лонг/);
 });
 test('observations use unique quotes, reset after gap; trigger is OR',()=>{
-  const {c,q}=fixture(); const s=normalizeFork();
+  const {c,q}=fixture(); const s=normalizeFork({enabled:true});
   observeFork(c,{...q,mark:'10'},s);
   observeFork(c,{...q,mark:'12',at:6000},s);
   assert.equal(forkTrigger(c,{...q,mark:'12'},s),'RAPID');
