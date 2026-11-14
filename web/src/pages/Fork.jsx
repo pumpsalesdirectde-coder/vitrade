@@ -178,7 +178,7 @@ function PairCard({ pair, account: a, refresh }) {
   </article>;
 }
 
-export default function Fork({ account: a, state, botId, refresh }) {
+export default function Fork({ account: a, accounts = [a], onPick, state, botId, refresh }) {
   const [selected, setSelected] = useState(botId || "");
   const [historyOpen, setHistoryOpen] = useState(false);
   useEffect(() => { if (botId) setSelected(botId); }, [botId]);
@@ -190,7 +190,14 @@ export default function Fork({ account: a, state, botId, refresh }) {
 
   return <div className="fork-page">
     <section className="panel fork-intro"><div><h2>Шорт и лонг с общей целью выхода</h2><p className="muted">Лонг рассчитывается под следующий шаг роста цены. Вилка включена по умолчанию, в том числе у ранее созданных ботов этой бумажной версии.</p></div><span className="chip paper-chip">Paper</span></section>
-    {bot ? <><label className="fork-pick">Основной бот<select value={bot.id} onChange={(e) => { setSelected(e.target.value); location.hash = `#/fork/${e.target.value}`; }}>{parents.map((b) => <option key={b.id} value={b.id}>{b.config.name} · бюджет {money(b.config.budget, 0)}</option>)}</select></label><ForkSettings key={`${a.id}:${bot.id}`} account={a} bot={bot} defaults={state.defaults.fork} refresh={refresh} /></>
+    <section className="panel fork-selection" aria-label="Выбор счёта и бота">
+      <div className="fields two">
+        <label>Счёт для вилки<select value={a.id} onChange={(e) => onPick(e.target.value)}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+        {bot && <label>Основной бот<select value={bot.id} onChange={(e) => { setSelected(e.target.value); location.hash = `#/fork/${e.target.value}`; }}>{parents.map((b) => <option key={b.id} value={b.id}>{b.config.name} · бюджет {money(b.config.budget, 0)}</option>)}</select></label>}
+      </div>
+      <p className="muted small">Выберите счёт, затем его бота. Настройки сохраняются отдельно для каждого бота.</p>
+    </section>
+    {bot ? <ForkSettings key={`${a.id}:${bot.id}`} account={a} bot={bot} defaults={state.defaults.fork} refresh={refresh} />
       : <div className="empty-state"><h2>Создайте основного бота</h2><p className="muted">Настройки вилки относятся к шортам основного бота. Связанный лонг появится автоматически при выполнении условия.</p><a className="btn primary" href="#/new">Создать бота</a></div>}
     <section className="fork-pairs"><header className="block-head"><h2>Активные пары <span className="count">{active.length}</span></h2><p className="muted">Все пары выбранного счёта. Докупки и частичные закрытия в паре отключены.</p></header>{active.length ? <div className="fork-pair-grid">{active.map((pair) => <PairCard key={pair.id} pair={pair} account={a} refresh={refresh} />)}</div> : <p className="muted">Активных пар пока нет.</p>}</section>
     <section className="fork-pairs"><div className="panel-head"><h2>История пар <span className="count">{history.length}</span></h2>{history.length > 0 && <button onClick={() => setHistoryOpen((v) => !v)} aria-expanded={historyOpen}>{historyOpen ? "Свернуть" : "Показать историю"}</button>}</div>{history.length === 0 ? <p className="muted">Здесь появятся результат и причина выхода каждой закрытой пары.</p> : historyOpen && <div className="fork-pair-grid">{history.map((pair) => <PairCard key={pair.id} pair={pair} account={a} refresh={refresh} />)}</div>}</section>
