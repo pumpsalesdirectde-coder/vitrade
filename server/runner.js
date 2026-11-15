@@ -1,6 +1,6 @@
 // Фоновая работа: между счетами обслуживает HTTP; новый проход — через секунду после предыдущего.
 import { setImmediate as yieldToIO } from "node:timers/promises";
-import { getValue, setValue, transaction } from "./db.js";
+import { getValue, setValue, transaction, updateAccount, listAccounts } from "./db.js";
 import { advance, applyFunding } from "./engine/engine.js";
 import { bill, blockedUsers } from "./wallet.js";
 import { collectFunding, collectMarket, collectSignal, collectStage } from "./market/bybit.js";
@@ -70,7 +70,7 @@ function* accountSteps(db, time, isStopped = () => false) {
         .map((f) => `${f.symbol}:${f.at}`);
       a.walletBlocked = blocked.has(a.ownerId);
       advance(a, quotes, now);
-      db.prepare("UPDATE accounts SET state=?, revision=revision+1 WHERE id=? AND revision=?").run(JSON.stringify(a), id, row.revision);
+      updateAccount(db, a, row.revision);
       processed++;
     });
     // The transaction is committed before yielding: commands can safely update the next account.
@@ -92,7 +92,7 @@ export async function tickAccountsCooperatively(db, clock = Date.now, isStopped 
 
 export async function refreshMarket(db, fetcher, now = Date.now()) {
   const cache = getValue(db, "market:cache", {});
-  const accounts = db.prepare("SELECT state FROM accounts").all().map((r) => JSON.parse(r.state));
+  const accounts = listAccounts(db, {snapshots: false});
   const held = [...new Set(accounts.flatMap((a) => a.cycles.filter((c) => c.status !== "CLOSED").map((c) => c.symbol)))];
   const funding = getValue(db, "market:funding", []);
   try {

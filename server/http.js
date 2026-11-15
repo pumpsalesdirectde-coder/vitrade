@@ -10,22 +10,17 @@ import { forkPlan } from './engine/fork.js';
 import { collectCandles } from "./market/bybit.js";
 import * as auth from "./auth.js";
 import * as wallet from "./wallet.js";
+import {readSnapshots} from './snapshots.js';
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".woff": "font/woff", ".png": "image/png", ".ico": "image/x-icon", ".webmanifest": "application/manifest+json", ".json": "application/json" };
 const fail = (message, status = 400) => Object.assign(Error(message), { status });
-
-function thin(points, n = 240) {
-  if (points.length <= n) return points;
-  const step = points.length / n;
-  return Array.from({ length: n }, (_, i) => points[Math.floor(i * step)]).concat(points.at(-1));
-}
 
 function publicAccount(a, quotes) {
   const s = summarize(a, quotes);
   const { fills, fundingIds, ...rest } = s;
   // служебная история цен подстраховки интерфейсу не нужна
   const strip = ({ marks, forkMarks, ...c }) => c;
-  return { ...rest, cycles: rest.cycles.map(strip), positions: rest.positions.map(strip), snapshots: thin(s.snapshots), events: s.events.slice(-150).reverse(), fillCount: fills.length };
+  return { ...rest, cycles: rest.cycles.map(strip), positions: rest.positions.map(strip), snapshots: s.snapshots, events: s.events.slice(-150).reverse(), fillCount: fills.length };
 }
 
 async function body(req) {
@@ -58,7 +53,7 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
   const signups = new Map(); // ip -> времена регистраций, не больше 5 в час
   const startedAt = Date.now();
   const own = (user, id) => {
-    const a = readAccount(db, id);
+    const a = readAccount(db, id, {snapshots: false});
     if (a.ownerId !== user.id) throw fail("Счёт не найден", 404);
     return a;
   };
@@ -82,7 +77,7 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
       wallet.attachReferrer(db, id, p.ref);
       wallet.ensureUser(db, id);
       // Новичку сразу открываем виртуальный счёт, чтобы кабинет не был пустым.
-      if (!listAccounts(db).some((a) => a.ownerId === id)) insertAccount(db, newAccount(randomUUID(), id, "Основной счёт", "market", now, "bybit", "10000"));
+      if (!listAccounts(db, {snapshots: false}).some((a) => a.ownerId === id)) insertAccount(db, newAccount(randomUUID(), id, "Основной счёт", "market", now, "bybit", "10000"));
       auth.recordLogin(db, id, String(p.email).trim().toLowerCase(), true, ctx.meta);
       ctx.setCookie = sessionCookie(auth.createSession(db, id, ctx.meta), 30 * 86400);
       return { ok: true };
@@ -132,7 +127,8 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
         market: getValue(db, "market:health", { status: "starting" }),
         worker: getValue(db, "worker:health", { status: "starting" }),
         wallet: { balance: wallet.balance(db, ctx.user.id), referrals: db.prepare("SELECT COUNT(*) n FROM users WHERE referred_by=?").get(ctx.user.id).n },
-        accounts: listAccounts(db).filter((a) => a.ownerId === ctx.user.id).map((a) => publicAccount(a, quotes)),
+        accounts: listAccounts(db, {snapshots: false}).filter((a) => a.ownerId === ctx.user.id)
+          .map(a => publicAccount({...a, snapshots: readSnapshots(db, a.id, 'chart')}, quotes)),
       };
     }],
     ["GET", /^\/api\/market$/, () => ({
@@ -156,7 +152,7 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
       if (!positive(initial) || D(initial).gt(1e8)) throw fail("Стартовый капитал — положительное число до 100 млн");
       if ((p.exchange || "bybit") !== "bybit") throw fail("Пока доступны только счета на ценах Bybit");
       return transaction(db, () => {
-        const active = listAccounts(db).filter((a) => a.ownerId === ctx.user.id && !a.archived);
+        const active = listAccounts(db, {snapshots: false}).filter((a) => a.ownerId === ctx.user.id && !a.archived);
         if (active.length >= LIMITS.accounts) throw fail(`Можно держать до ${LIMITS.accounts} активных счетов`);
         const a = newAccount(randomUUID(), ctx.user.id, name, "market", Date.now(), "bybit", D(initial).toFixed());
         insertAccount(db, a);
