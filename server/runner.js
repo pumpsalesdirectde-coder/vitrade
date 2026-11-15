@@ -1,4 +1,5 @@
-// Фоновая работа: раз в секунду продвигает счета, раз в 5 секунд обновляет рынок.
+// Фоновая работа: между счетами обслуживает HTTP; новый проход — через секунду после предыдущего.
+import { setImmediate as yieldToIO } from "node:timers/promises";
 import { getValue, setValue, transaction } from "./db.js";
 import { advance, applyFunding } from "./engine/engine.js";
 import { bill, blockedUsers } from "./wallet.js";
@@ -34,31 +35,59 @@ function recordSettlements(db, now, observations = []) {
 const holds = (a, symbol, at) =>
   a.cycles.some((c) => c.symbol === symbol && c.openedAt < at && (c.closedAt === null || c.closedAt >= at));
 
-export function tickAccounts(db, now) {
+function accountContext(db, now) {
   const quotes = getValue(db, "market:quotes", {});
   const due = recordSettlements(db, now, Object.values(quotes));
   const funding = getValue(db, "market:funding", []);
-  let processed = 0;
+  const funded = new Set(funding.map((f) => `${f.symbol}:${f.at}`));
+  const missing = due.filter((f) => !funded.has(`${f.symbol}:${f.at}`));
   let blocked = new Set();
   try {
     blocked = blockedUsers(db);
   } catch { /* таблицы кошелька ещё нет — без блокировок */ }
+  return { quotes, funding, missing, blocked };
+}
+
+function* accountSteps(db, time, isStopped = () => false) {
+  if (isStopped()) return;
+  const live = typeof time === "function";
+  const clock = live ? time : () => time;
+  const fixedContext = live ? null : accountContext(db, time);
+  let processed = 0;
   for (const { id } of db.prepare("SELECT id FROM accounts").all()) {
+    if (isStopped()) return;
+    // A command/quote may arrive during the yield. Never backdate its fill to the pass start.
+    const now = clock();
+    const { quotes, funding, missing, blocked } = fixedContext || accountContext(db, now);
     transaction(db, () => {
       const row = db.prepare("SELECT state, revision FROM accounts WHERE id=?").get(id);
+      if (!row) return;
       const a = JSON.parse(row.state);
       if (a.archived) return;
       for (const f of funding) applyFunding(a, f);
-      a.fundingGaps = due
-        .filter((f) => holds(a, f.symbol, f.at) && !funding.some((x) => x.symbol === f.symbol && x.at === f.at))
+      a.fundingGaps = missing
+        .filter((f) => holds(a, f.symbol, f.at))
         .map((f) => `${f.symbol}:${f.at}`);
       a.walletBlocked = blocked.has(a.ownerId);
       advance(a, quotes, now);
       db.prepare("UPDATE accounts SET state=?, revision=revision+1 WHERE id=? AND revision=?").run(JSON.stringify(a), id, row.revision);
       processed++;
     });
+    // The transaction is committed before yielding: commands can safely update the next account.
+    yield;
   }
-  setValue(db, "worker:health", { at: now, processed, status: "running" });
+  if (isStopped()) return;
+  setValue(db, "worker:health", { at: clock(), processed, status: "running" });
+}
+
+/** Synchronous entry point retained for deterministic tests and replay. */
+export function tickAccounts(db, now) {
+  for (const _ of accountSteps(db, now)) { /* drain all transactions */ }
+}
+
+/** Never hold a transaction across an await or process all accounts in one blocking callback. */
+export async function tickAccountsCooperatively(db, clock = Date.now, isStopped = () => false) {
+  for (const _ of accountSteps(db, clock, isStopped)) await yieldToIO();
 }
 
 export async function refreshMarket(db, fetcher, now = Date.now()) {
@@ -108,9 +137,13 @@ export async function refreshMarket(db, fetcher, now = Date.now()) {
 export function startRunner(db, fetcher, { offline = false } = {}) {
   let collecting = false;
   let billedAt = 0;
-  const tick = () => {
+  let stopped = false;
+  let t1;
+  const tick = async () => {
+    if (stopped) return;
     try {
-      tickAccounts(db, Date.now());
+      await tickAccountsCooperatively(db, Date.now, () => stopped);
+      if (stopped) return;
       if (Date.now() - billedAt > 1e4) {
         billedAt = Date.now();
         try {
@@ -118,11 +151,15 @@ export function startRunner(db, fetcher, { offline = false } = {}) {
         } catch { /* кошелёк ещё не создан */ }
       }
     } catch (e) {
-      setValue(db, "worker:health", { at: Date.now(), status: "error", message: e.message });
+      if (!stopped) setValue(db, "worker:health", { at: Date.now(), status: "error", message: e.message });
+    } finally {
+      // setInterval queues work continuously when one pass already takes more than a second.
+      // Leave a full rest interval after completion, and never overlap account passes.
+      if (!stopped) t1 = setTimeout(() => void tick(), 1e3);
     }
   };
   const collect = async () => {
-    if (collecting) return;
+    if (stopped || collecting) return;
     if (offline) {
       setValue(db, "market:health", { at: Date.now(), status: "disabled", message: "Рынок отключён (offline)" });
       return;
@@ -134,12 +171,12 @@ export function startRunner(db, fetcher, { offline = false } = {}) {
       collecting = false;
     }
   };
-  tick();
+  t1 = setTimeout(() => void tick(), 0);
   void collect();
-  const t1 = setInterval(tick, 1e3);
   const t2 = setInterval(() => void collect(), 5e3);
   return () => {
-    clearInterval(t1);
+    stopped = true;
+    clearTimeout(t1);
     clearInterval(t2);
   };
 }
