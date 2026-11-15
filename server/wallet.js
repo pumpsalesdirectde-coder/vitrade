@@ -57,7 +57,7 @@ export function bill(db) {
   const users = new Map(db.prepare("SELECT id, referred_by, name FROM users").all().map((u) => [u.id, u]));
   let charged = 0;
   transaction(db, () => {
-    for (const a of listAccounts(db)) {
+    for (const a of listAccounts(db, {snapshots: false})) {
       const owner = users.get(a.ownerId);
       if (!owner) continue;
       for (const c of a.cycles) {
@@ -106,7 +106,7 @@ export function referralView(db, userId) {
   const me = db.prepare("SELECT ref_code FROM users WHERE id=?").get(userId);
   const invited = db.prepare("SELECT id, name, email, created_at FROM users WHERE referred_by=? ORDER BY created_at DESC").all(userId);
   const byUser = new Map(db.prepare("SELECT json_extract(meta, '$.from') AS u, COUNT(*) AS n, SUM(amount) AS s FROM wallet_tx WHERE user_id=? AND type='REF' GROUP BY u").all(userId).map((r) => [r.u, r]));
-  const accounts = listAccounts(db);
+  const accounts = listAccounts(db, {snapshots: false});
   const mask = (e) => e.replace(/^(.{2}).*(@.*)$/, "$1•••$2");
   const list = invited.map((u) => {
     const r = byUser.get(u.id);
