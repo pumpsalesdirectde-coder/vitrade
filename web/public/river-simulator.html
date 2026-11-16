@@ -5850,6 +5850,28 @@ function run(data,input={}){
 return {defaults,run,value,validate};
 })();
 
+(function(root){
+  function replayWindow(result,data){
+    const end=Math.min(result.openedAt+3600000,data.end-1);
+    const timeline=result.timeline.filter(s=>s.at<=end).map(s=>({...s}));
+    if(result.closed&&result.closedAt<=end){
+      const last=timeline.at(-1);
+      if(!last)throw Error('Нет данных до закрытия сделки');
+      last.closed=true;
+      for(let t=result.closedAt+5000;t<=end+5000;t+=5000){
+        const at=Math.min(t,end),bar=data.bars.find(r=>r[0]<=at&&at<r[0]+300000),mark=data.marks.find(r=>r[0]<=at&&at<r[0]+300000);
+        if(!bar||!mark)break;
+        const value=r=>{const f=(at-r[0])/300000;return r[1]+(r[4]-r[1])*f;};
+        timeline.push({...last,at,price:value(bar),mark:value(mark),closed:true,net:result.net,shortNet:result.shortNet,longNet:result.longNet,fees:result.fees,funding:result.funding,cash:result.finalEquity,equity:result.finalEquity});
+        if(at===end)break;
+      }
+    }
+    return timeline;
+  }
+  root.ReplayWindow={replayWindow};
+  if(typeof module!=='undefined')module.exports=root.ReplayWindow;
+})(globalThis);
+
 (function (root) {
   function makeManualPath(data, from, target, barsCount) {
     const step = 300000;
@@ -5893,7 +5915,7 @@ function fill(p){for(const [k,v]of Object.entries(p)){const el=form.elements[k];
 function setMoney(el,n){el.textContent=money(n);el.classList.toggle('positive',n>0);el.classList.toggle('negative',n<0);}
 function stopPlay(){playing=false;clearInterval(timer);$('play').textContent='▶ Проиграть';}
 async function recalc(){if(busy)return;clearTimeout(debounce);stopPlay();$('error').textContent='';if(!form.reportValidity())return;const candidate=read();busy=true;document.body.classList.add('computing');$('apply').disabled=true;$('status').textContent='Пересчёт текущего варианта и двух сравнений…';await new Promise(r=>setTimeout(r,30));
-try{const r=sim.run(data,candidate),b=sim.run(data,{...candidate,fork:false}),o=sim.run(data,{...candidate,order:candidate.order==='high'?'low':'high'});params=candidate;result=r;baseline=b;other=o;idx=result.timeline.length-1;$('scrub').max=idx;$('scrub').value=idx;fitView();renderSummary();renderJournal();draw();$('status').textContent='Пересчитано · '+result.timeline.length+' состояний · изменения только в модели';window.__river={result,baseline,other,params};}
+try{const r=sim.run(data,candidate),b=sim.run(data,{...candidate,fork:false}),o=sim.run(data,{...candidate,order:candidate.order==='high'?'low':'high'});r.timeline=ReplayWindow.replayWindow(r,data);params=candidate;result=r;baseline=b;other=o;idx=result.timeline.length-1;$('scrub').max=idx;$('scrub').value=idx;fitView();renderSummary();renderJournal();draw();$('status').textContent='Пересчитано · воспроизведение до 60 минут после входа · изменения только в модели';window.__river={result,baseline,other,params};}
 catch(err){$('error').textContent=err.message;$('status').textContent='Настройки не применены. На графике предыдущий расчёт.';}
 finally{busy=false;$('apply').disabled=false;document.body.classList.remove('computing');}}
 function fitView(){if(!result)return;const start=result.openedAt-15*60000,end=(result.closedAt||data.end)+20*60000;view=[Math.max(data.start,start),Math.min(data.end,Math.max(end,start+90*60000))];}
@@ -5902,15 +5924,15 @@ const f=result.events.find(e=>e.type==='FORK_OPEN'),block=result.events.find(e=>
 function renderJournal(){const frag=document.createDocumentFragment();result.events.forEach((e,i)=>{const tr=document.createElement('tr');tr.dataset.index=i;const note=e.type==='CLOSE'?money(e.amount)+' · '+(reasons[e.note]||e.note):e.type==='FORK_BLOCKED'?'$'+number(e.amount,2)+' · '+reasons[e.note]:e.type==='EXIT'?'Валовой PnL '+money(e.amount):e.type==='FORK_OPEN'?'Маржа $'+number(e.amount,2):e.type==='FUNDING'?money(e.amount):e.amount?money(e.amount):'';[clock(e.at),names[e.type]||e.type,e.side||'—',number(e.price),number(e.qty,6),e.fee!==undefined?'$'+number(e.fee,4):'—',note].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td);});tr.addEventListener('click',()=>{stopPlay();seek(e.at);});frag.appendChild(tr);});$('journal').replaceChildren(frag);}
 function findIndex(t){let lo=0,hi=result.timeline.length-1;while(lo<hi){const m=Math.ceil((lo+hi)/2);if(result.timeline[m].at<=t)lo=m;else hi=m-1;}return lo;}
 function seek(t){idx=findIndex(t);$('scrub').value=idx;draw();}
-function positionRows(s){const end=idx===result.timeline.length-1&&result.closed;const rows=[s.short,s.long].map((p,i)=>{if(!p)return '<tr><td>'+(i?'LONG':'SHORT')+'</td><td colspan="6" class="muted">Не открыт</td></tr>';const net=end?(i?result.longNet:result.shortNet):p.net;return '<tr><td style="color:'+(i?colors.green:colors.red)+'">'+p.side+(end?' · закрыт':'')+'</td><td>'+number(p.qty,6)+'</td><td>'+number(p.avg,5)+'</td><td>$'+number(p.margin,2)+(end?' до выхода':'')+'</td><td>'+number(p.be,5)+'</td><td>'+number(p.liq,5)+'</td><td class="'+(net>=0?'positive':'negative')+'">'+money(net)+'</td></tr>';});$('positions').innerHTML=rows.join('');$('tradeStatus').textContent=end?reasons[result.reason]:(s.long?'Обе позиции открыты':'SHORT открыт');const fees=end?result.fees:s.fees;$('currentCosts').textContent='Комиссии '+(end?'всего':'уплачены')+': $'+number(fees,4)+' · Funding: '+money(end?result.funding:s.funding)+' · PnL пары: '+money(end?result.net:s.net);$('accountState').textContent='Equity: $'+number(end?result.finalEquity:s.equity,2)+' · Свободный денежный остаток: $'+number(end?result.finalEquity:s.cash,2);$('replayTime').textContent=clock(s.at)+' · '+(s.at<data.end?'18 января*':'');$('replayTime').title=dateLocal(s.at).replace('T',' ')+' UTC+5';
+function positionRows(s){const end=!!s.closed;const rows=[s.short,s.long].map((p,i)=>{if(!p)return '<tr><td>'+(i?'LONG':'SHORT')+'</td><td colspan="6" class="muted">Не открыт</td></tr>';const net=end?(i?result.longNet:result.shortNet):p.net;return '<tr><td style="color:'+(i?colors.green:colors.red)+'">'+p.side+(end?' · закрыт':'')+'</td><td>'+number(p.qty,6)+'</td><td>'+number(p.avg,5)+'</td><td>$'+number(p.margin,2)+(end?' до выхода':'')+'</td><td>'+number(p.be,5)+'</td><td>'+number(p.liq,5)+'</td><td class="'+(net>=0?'positive':'negative')+'">'+money(net)+'</td></tr>';});$('positions').innerHTML=rows.join('');$('tradeStatus').textContent=end?reasons[result.reason]:(s.long?'Обе позиции открыты':'SHORT открыт');const fees=end?result.fees:s.fees;$('currentCosts').textContent='Комиссии '+(end?'всего':'уплачены')+': $'+number(fees,4)+' · Funding: '+money(end?result.funding:s.funding)+' · PnL пары: '+money(end?result.net:s.net);$('accountState').textContent='Equity: $'+number(end?result.finalEquity:s.equity,2)+' · Свободный денежный остаток: $'+number(end?result.finalEquity:s.cash,2);$('replayTime').textContent=clock(s.at)+' · '+(s.at<data.end?'18 января*':'');$('replayTime').title=dateLocal(s.at).replace('T',' ')+' UTC+5';
 for(const row of $('journal').rows){const e=result.events[+row.dataset.index];row.classList.toggle('future',e.at>s.at);row.classList.toggle('selected',Math.abs(e.at-s.at)<5000);}}
 function setup(canvas){const rect=canvas.getBoundingClientRect(),w=Math.max(200,rect.width),h=rect.height,dpr=window.devicePixelRatio||1;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);c.fillStyle=colors.bg;c.fillRect(0,0,w,h);c.font='12px system-ui';return {c,w,h};}
 function line(c,x1,y1,x2,y2,color,dash=[]){c.beginPath();c.strokeStyle=color;c.lineWidth=1;c.setLineDash(dash);c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke();c.setLineDash([]);}
 function targetPrice(s,target){const legs=[s.short,s.long].filter(Boolean);const evaluate=px=>legs.reduce((sum,z)=>{const raw={direction:z.side,quantity:String(z.qty),average:String(z.avg),fees:String(z.fees),funding:String(z.funding),realized:String(z.realized),status:'OPEN',config:{feeRate:String(params.fee/100),slippageRate:String(params.slippage/100)}};return sum+(+E.expectedResult(raw,{mark:String(px),bid:String(px*(1-params.spread/200)),ask:String(px*(1+params.spread/200))}));},0),v1=evaluate(s.price),v2=evaluate(s.price+1),slope=v2-v1;return Math.abs(slope)<1e-9?null:s.price+(target-v1)/slope;}
 function draw(){if(!result)return;const s=result.timeline[idx];positionRows(s);const {c,w,h}=setup(priceCanvas),left=12,right=85,top=18,bottom=52,pw=w-left-right,ph=h-top-bottom;const visible=data.bars.filter(r=>r[0]+300000>=view[0]&&r[0]<=view[1]);if(!visible.length)return;let min=Math.min(...visible.map(r=>r[3])),max=Math.max(...visible.map(r=>r[2]));const levels=[];
-if(s.short){levels.push({p:s.short.avg,color:colors.red,label:'SHORT ср.'});levels.push({p:s.short.be,color:colors.red,label:'SHORT б/у',dash:[2,5]});if($('showLiq').checked)levels.push({p:s.short.liq,color:colors.red,label:'Ликв. S',dash:[6,4]});}
-if(s.long){levels.push({p:s.long.avg,color:colors.green,label:'LONG ср.'});levels.push({p:s.long.be,color:colors.green,label:'LONG б/у',dash:[2,5]});if($('showLiq').checked)levels.push({p:s.long.liq,color:colors.green,label:'Ликв. L',dash:[6,4]});}
-const stop=targetPrice(s,-params.stop),take=targetPrice(s,s.long?params.forkTp:params.tp);if(stop>0)levels.push({p:stop,color:colors.red,label:'Стоп пары',dash:[5,5]});if(take>0)levels.push({p:take,color:colors.blue,label:'Тейк',dash:[5,5]});
+if(s.short&&!s.closed){levels.push({p:s.short.avg,color:colors.red,label:'SHORT ср.'});levels.push({p:s.short.be,color:colors.red,label:'SHORT б/у',dash:[2,5]});if($('showLiq').checked)levels.push({p:s.short.liq,color:colors.red,label:'Ликв. S',dash:[6,4]});}
+if(s.long&&!s.closed){levels.push({p:s.long.avg,color:colors.green,label:'LONG ср.'});levels.push({p:s.long.be,color:colors.green,label:'LONG б/у',dash:[2,5]});if($('showLiq').checked)levels.push({p:s.long.liq,color:colors.green,label:'Ликв. L',dash:[6,4]});}
+const stop=s.closed?null:targetPrice(s,-params.stop),take=s.closed?null:targetPrice(s,s.long?params.forkTp:params.tp);if(stop>0)levels.push({p:stop,color:colors.red,label:'Стоп пары',dash:[5,5]});if(take>0)levels.push({p:take,color:colors.blue,label:'Тейк',dash:[5,5]});
 if($('showLiq').checked)for(const z of levels)if(Number.isFinite(z.p)&&z.p>0){min=Math.min(min,z.p);max=Math.max(max,z.p);}const pad=(max-min)*.1||1;min-=pad;max+=pad;const x=t=>left+(t-view[0])/(view[1]-view[0])*pw,y=p=>top+(max-p)/(max-min)*ph;lastGeometry={x,y,min,max,left,right,w,h,top,ph,pw};
 const stepBase=(max-min)/6,power=10**Math.floor(Math.log10(stepBase)),step=[1,2,2.5,5,10].map(z=>z*power).find(z=>z>=stepBase);for(let p=Math.ceil(min/step)*step;p<max;p+=step){line(c,left,y(p),w-right,y(p),colors.grid);c.fillStyle=colors.muted;c.fillText(number(p,3),w-right+8,y(p)+4);}
 const span=view[1]-view[0],timeStep=span>8*3600000?2*3600000:span>3*3600000?3600000:span>90*60000?1800000:900000;for(let t=Math.ceil(view[0]/timeStep)*timeStep;t<view[1];t+=timeStep){line(c,x(t),top,x(t),h-bottom,colors.grid);c.fillStyle=colors.muted;c.fillText(clock(t).slice(0,5),x(t)-17,h-15);}
