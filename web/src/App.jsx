@@ -22,7 +22,7 @@ import AccountSwitch from "./ui/AccountSwitch.jsx";
 import AllAccounts from "./pages/AllAccounts.jsx";
 
 const MENU = [
-  ["Торговля", [["overview", "Обзор"], ["screener", "Чекер"], ["bots", "Боты"], ["fork", "Вилка"], ["trades", "Сделки"], ["stats", "Статистика"]]],
+  ["Торговля", [["overview", "Обзор"], ["screener", "Чекер"], ["bots", "Боты"], ["fork", "Вилка"], ["river-simulator", "Симулятор RIVER"], ["trades", "Сделки"], ["stats", "Статистика"]]],
   ["Счета", [["exchanges", "Биржи и счета"]]],
   ["Финансы", [["wallet", "Кошелёк"], ["referrals", "Рефералы"]]],
   ["Аккаунт", [["profile", "Профиль и настройки"], ["security", "Безопасность"]]],
@@ -151,8 +151,8 @@ export default function App() {
             <div key={group} className="nav-group">
               <span className="nav-label">{group}</span>
               {items.map(([id, label]) => (
-                <a key={id} href={`#/${id}`} aria-current={current === id ? "page" : undefined}>
-                  <Icon name={id} />{label}
+                <a key={id} href={id === "river-simulator" ? "/river-simulator.html" : `#/${id}`} aria-current={current === id ? "page" : undefined}>
+                  <Icon name={id === "river-simulator" ? "stats" : id} />{label}
                   {id === "wallet" && state?.wallet && <span className={`nav-badge ${state.wallet.balance < 0 ? "down" : ""}`}>{money(state.wallet.balance)}</span>}
                   {id === "referrals" && state?.wallet && <span className="nav-badge count">{state.wallet.referrals ?? 0}</span>}
                 </a>
