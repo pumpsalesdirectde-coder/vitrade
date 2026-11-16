@@ -31,6 +31,7 @@
  <section class="section"><h2>Исполнение и расходы</h2><div class="fields"><label class="field wide">Модель пути OHLC<select name="order"><option value="high">Сначала максимум → минимум</option><option value="low">Сначала минимум → максимум</option></select></label><label class="field">Комиссия, % / исполнение<input name="fee" type="number" value="0.05" min="0" max="1" step="0.01"></label><label class="field">Проскальзывание, %<input name="slippage" type="number" value="0.02" min="0" max="1" step="0.01"></label><label class="field">Полный спред, %<input name="spread" type="number" value="0.02" min="0" max="2" step="0.01"></label></div><label class="check"><input name="funding" type="checkbox" checked>Учитывать архивный funding</label><button class="primary" id="apply" type="submit">Пересчитать сделку</button><div class="help" id="status">Подготовка расчёта…</div></section>
 </form></aside>
 <main class="main">
+<div class="box"><h2>Своё движение цены</h2><div class="fields"><label class="field">Конечная цена, USDT<input id="manualTarget" type="number" min="0.00000001" step="any" value="22"></label><label class="field">Продолжительность, свечей по 5 мин<input id="manualBars" type="number" min="1" max="288" step="1" value="12"></label></div><div class="buttons" style="margin-top:10px"><button type="button" id="manualApply">Задать движение от выбранного момента</button><button type="button" id="manualReset">Вернуть исторические цены</button></div><p id="manualStatus" class="sidenote">Перед запуском выберите время ползунком. Движение заменит историю с начала выбранной свечи; далее цена останется на заданном уровне. Это модель, не реальные свечи.</p></div>
 <div id="error" class="error" role="alert"></div>
 <div class="stats"><div class="stat"><div class="label">Итог цикла · чистый PnL</div><div class="value" id="finalNet">—</div><small id="finalReason">—</small></div><div class="stat"><div class="label">Без вилки · те же настройки</div><div class="value" id="baseNet">—</div><small id="deltaNet">—</small></div><div class="stat"><div class="label">Максимум занятой маржи</div><div class="value" id="maxMargin">—</div><small id="feesTotal">—</small></div><div class="stat"><div class="label">Худший результат по пути</div><div class="value" id="worstNet">—</div><small id="fundingTotal">—</small></div></div>
 <div class="chartbox"><div class="toolbar"><span class="charttitle">RIVERUSDT · 5m</span><label class="check"><input type="checkbox" id="showMark" checked>Mark price</label><label class="check"><input type="checkbox" id="showPath">Путь внутри свечи</label><label class="check"><input type="checkbox" id="showLiq">Масштаб до ликвидации</label><div class="zoomButtons"><button id="zoomIn" aria-label="Увеличить">＋</button><button id="zoomOut" aria-label="Уменьшить">−</button><button id="fit">Показать сделку</button></div></div>
@@ -5849,9 +5850,33 @@ function run(data,input={}){
 return {defaults,run,value,validate};
 })();
 
+(function (root) {
+  function makeManualPath(data, from, target, barsCount) {
+    const step = 300000;
+    const start = Math.floor(from / step) * step;
+    const first = data.bars.findIndex(row => row[0] === start);
+    if (first < 0 || !Number.isFinite(target) || target <= 0 || !Number.isInteger(barsCount) || barsCount < 1) throw Error('Укажите положительную цену и длительность не менее одной свечи');
+    if (first + barsCount > data.bars.length) throw Error('Недостаточно исторических свечей после выбранного момента');
+    const origin = data.bars[first][1];
+    const bars = data.bars.map(row => row.slice());
+    const marks = data.marks.map(row => row.slice());
+    for (let i = first; i < bars.length; i++) {
+      const n = i - first;
+      const open = origin + (target - origin) * Math.min(n / barsCount, 1);
+      const close = origin + (target - origin) * Math.min((n + 1) / barsCount, 1);
+      bars[i] = [bars[i][0], open, Math.max(open, close), Math.min(open, close), close, 0, ...bars[i].slice(6)];
+      marks[i] = [marks[i][0], open, Math.max(open, close), Math.min(open, close), close];
+    }
+    return { ...data, bars, marks };
+  }
+  root.ManualPath = { makeManualPath };
+  if (typeof module !== 'undefined') module.exports = root.ManualPath;
+})(globalThis);
+
 (()=>{
 'use strict';
-const $=id=>document.getElementById(id),form=$('settings'),data=RIVER_DATA,sim=RiverSim,E=ResearchEngine;
+const $=id=>document.getElementById(id),form=$('settings'),sim=RiverSim,E=ResearchEngine;
+let data=RIVER_DATA;
 const colors={bg:'#111925',grid:'#253144',text:'#c8d5e7',muted:'#8fa0b8',green:'#41d5a0',red:'#ff7184',blue:'#69adff',gold:'#e4bc6a',purple:'#bd9bff'};
 const money=n=>(n<0?'−':n>0?'+':'')+'$'+Math.abs(n).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
 const number=(n,d=4)=>Number.isFinite(n)?n.toLocaleString('ru-RU',{maximumFractionDigits:d}):'—';
@@ -5911,6 +5936,8 @@ for(const id of ['showMark','showPath','showLiq'])$(id).onchange=draw;$('zoomIn'
 form.onsubmit=e=>{e.preventDefault();recalc();};form.addEventListener('change',()=>{clearTimeout(debounce);$('status').textContent='Настройки изменены · пересчёт…';debounce=setTimeout(recalc,400);});
 $('reset').onclick=()=>{fill(sim.defaults);recalc();};$('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch(e){$('error').textContent='Полный экран недоступен. Разверните окно браузера.';}};
 $('download').onclick=()=>{if(!result)return;const rows=[['time_UTC','time_Tashkent','type','side','price_USDT','quantity_RIVER','fee_USDT','amount_USDT','note'],...result.events.map(e=>[new Date(e.at).toISOString(),dateLocal(e.at),e.type,e.side||'',e.price??'',e.qty??'',e.fee??'',e.amount??'',e.note||''])];const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(';')).join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='river-replay-journal.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+$('manualApply').onclick=()=>{if(!result||busy)return;try{const from=Math.floor(result.timeline[idx].at/300000)*300000;if(from<=params.entry)throw Error('Выберите свечу после входа в позицию');const target=Number($('manualTarget').value),count=Number($('manualBars').value);const next=ManualPath.makeManualPath(RIVER_DATA,from,target,count);data=next;$('manualStatus').textContent='Модельное движение с '+dateLocal(from).replace('T',' ')+' UTC+5 до '+target+' USDT за '+count*5+' мин; далее цена постоянна. Mark равен модельной цене, архивный funding сохранён.';recalc();}catch(e){$('error').textContent=e.message;}};
+$('manualReset').onclick=()=>{if(busy)return;data=RIVER_DATA;$('manualStatus').textContent='Исторические свечи восстановлены.';recalc();};
 new ResizeObserver(()=>draw()).observe($('chartWrap'));fill(sim.defaults);recalc();
 })();
 </script>
