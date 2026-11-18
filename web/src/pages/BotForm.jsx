@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { get, post } from "../api.js";
 import { STRATEGY, STRATEGY_ORDER, coin, money, pct, price } from "../format.js";
 import Hint from "../ui/Hint.jsx";
@@ -48,6 +48,7 @@ const pickConfig = (c) => ({
 export default function BotForm({ account: a, state, botId, refresh }) {
   const editing = a.bots.find((b) => b.id === botId);
   const [cfg, setCfg] = useState(() => pickConfig(editing ? editing.config : { ...state.defaults, name: `Бот ${a.bots.length + 1}` }));
+  const beforePreset = useRef(null);
   const [excl, setExcl] = useState((editing?.config.exclusions || state.defaults.exclusions).map(coin).join(", "));
   const [quotes, setQuotes] = useState([]);
   const [err, setErr] = useState("");
@@ -55,10 +56,16 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   useEffect(() => {
     get("/api/market").then((m) => setQuotes(m.quotes)).catch(() => {});
   }, []);
+  const restorePreviousConfig = (prev, snapshot) => {
+    const original = snapshot ?? pickConfig({ ...state.defaults, name: prev.name });
+    return { ...original, stages: { ...original.stages, DUMP_ACCEL: false } };
+  };
   const set = (k) => (e) => {
     const value = e.target.type === "checkbox" ? e.target.checked : e.target.type === "number" ? Number(e.target.value) : e.target.value;
+    const snapshot = beforePreset.current;
+    if (k === "mode" && value === "manual" && cfg.stages.DUMP_ACCEL) beforePreset.current = null;
     setCfg((prev) => k === "mode" && value === "manual" && prev.stages.DUMP_ACCEL
-      ? { ...prev, mode: value, accelerationStopOn: false, stages: { ...prev.stages, DUMP_ACCEL: false } }
+      ? { ...restorePreviousConfig(prev, snapshot), mode: value }
       : { ...prev, [k]: value });
   };
   const setOrderPct = (index) => (e) => setCfg((prev) => ({ ...prev, orderPcts: prev.orderPcts.map((v, i) => i === index ? e.target.value : v) }));
@@ -72,13 +79,16 @@ export default function BotForm({ account: a, state, botId, refresh }) {
     fork: { ...prev.fork, enabled: false },
     stages: Object.fromEntries(STRATEGY_ORDER.map((key) => [key, key === "DUMP_ACCEL"])),
   });
-  const selectStrategy = (key, checked) => setCfg((prev) => {
-    if (key === "DUMP_ACCEL") return checked ? applyDump10Preset(prev)
-      : { ...prev, stages: { ...prev.stages, DUMP_ACCEL: false }, accelerationStopOn: false };
-    const stages = { ...prev.stages, [key]: checked };
-    if (prev.stages.DUMP_ACCEL) stages.DUMP_ACCEL = false;
-    return { ...prev, stages, accelerationStopOn: prev.stages.DUMP_ACCEL ? false : prev.accelerationStopOn };
-  });
+  const selectStrategy = (key, checked) => {
+    const snapshot = beforePreset.current;
+    if (key === "DUMP_ACCEL" && checked) beforePreset.current = structuredClone(cfg);
+    else if (cfg.stages.DUMP_ACCEL) beforePreset.current = null;
+    setCfg((prev) => {
+      if (key === "DUMP_ACCEL") return checked ? applyDump10Preset(prev) : restorePreviousConfig(prev, snapshot);
+      const base = prev.stages.DUMP_ACCEL ? restorePreviousConfig(prev, snapshot) : prev;
+      return { ...base, stages: { ...base.stages, [key]: checked } };
+    });
+  };
   const manual = cfg.mode === "manual";
   const mark = Number(quotes.find((q) => q.symbol === cfg.symbol)?.mark || 0);
   const entry = manual && mark ? mark : 100;
@@ -163,7 +173,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
           <legend>Деньги и сетка</legend>
           <div className="fields">
             <label>Название<input value={cfg.name} onChange={set("name")} maxLength={64} required /></label>
-            <label><Hint term="budget">Бюджет сетки, $</Hint><input className="num" inputMode="decimal" value={cfg.budget} onChange={set("budget")} /><small className="muted">делится поровну на все шаги</small></label>
+            <label><Hint term="budget">Бюджет сетки, $</Hint><input className="num" inputMode="decimal" value={cfg.budget} onChange={set("budget")} /><small className="muted">вход и докупки задаются в % бюджета</small></label>
             <label><Hint term="leverage">Плечо</Hint><input type="number" min={state.limits.leverage[0]} max={state.limits.leverage[1]} value={cfg.leverage} onChange={set("leverage")} /></label>
             <label><Hint term="steps">Докупок сетки</Hint><input type="number" min={state.limits.steps[0]} max={state.limits.steps[1]} value={cfg.steps} onChange={set("steps")} /></label>
             <label>Первый вход, % бюджета сетки<input className="num" inputMode="decimal" value={cfg.entryPct} onChange={set("entryPct")} /><small className="muted">{money(Number(cfg.budget) * Number(cfg.entryPct) / 100)} маржи</small></label>
