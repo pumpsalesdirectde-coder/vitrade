@@ -23,10 +23,13 @@ function autoInterval(win) {
 }
 
 /** Треугольник-метка: вершина вниз для продажи, вверх для покупки. */
-function Mark({ x, y, down, cls, size = 9 }) {
+function Mark({ x, y, down, cls, label, onEnter, onLeave, onClick, size = 9 }) {
   const s = size;
   const d = down ? `M${x - s},${y - s * 1.9} L${x + s},${y - s * 1.9} L${x},${y - s * 0.3} Z` : `M${x - s},${y + s * 1.9} L${x + s},${y + s * 1.9} L${x},${y + s * 0.3} Z`;
-  return <path d={d} className={`tc-mark ${cls}`} />;
+  return <g className="tc-marker" tabIndex={0} role="button" aria-label={label} onMouseEnter={onEnter} onMouseLeave={onLeave} onFocus={onEnter} onBlur={onLeave} onClick={onClick} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}>
+    <circle cx={x} cy={y} r={18} className="tc-mark-hit" />
+    <path d={d} className={`tc-mark ${cls}`} />
+  </g>;
 }
 
 export default function TradeChart({ account, cycle, position, onClose }) {
@@ -35,6 +38,7 @@ export default function TradeChart({ account, cycle, position, onClose }) {
   const [interval, setInterval_] = useState(() => autoInterval(win));
   const [candles, setCandles] = useState(null);
   const [fills, setFills] = useState([]);
+  const [hoveredFillId, setHoveredFillId] = useState(null);
   const [err, setErr] = useState("");
   // ширина графика = ширина блока, чтобы на телефоне подписи не мельчали
   const box = useRef(null);
@@ -87,6 +91,7 @@ export default function TradeChart({ account, cycle, position, onClose }) {
 
   const W = boxW, H = Math.round(Math.min(380, Math.max(300, boxW * 0.62))), L = 6, R = W < 500 ? 84 : 92, T = 22, B = 24;
   let chart = null;
+  let tooltip = null;
   if (candles?.length) {
     const t0 = candles[0].t;
     const step = candles.length > 1 ? candles[1].t - candles[0].t : 6e4;
@@ -112,8 +117,33 @@ export default function TradeChart({ account, cycle, position, onClose }) {
       lastY = t.ty;
     }
     const increases = fills.filter((f) => f.action === "increase");
+    const hovered = fills.find((f) => f.id === hoveredFillId);
+    if (hovered) {
+      const px = x(hovered.at), py = y(Number(hovered.price));
+      const notional = Number(hovered.quantity) * Number(hovered.price);
+      const entry = hovered.action === "increase";
+      const step = increases.findIndex((f) => f.id === hovered.id);
+      const title = entry ? (hovered.reason === "MANUAL_ADD" ? "Ручная докупка" : step === 0 ? "W1 (Вход)" : `W${step + 1} (Докупка)`)
+        : CLOSE_REASON[hovered.reason] || "Выход";
+      tooltip = <div className={`tc-fill-tip ${py > H * 0.5 ? "above" : "below"}`} role="tooltip"
+        style={{ left: `${Math.max(106, Math.min(W - 106, px)) / W * 100}%`, top: `${py / H * 100}%` }}>
+        <strong>{title} ({hovered.side === "BUY" ? "Покупка" : "Продажа"})</strong>
+        <span>{new Date(hovered.at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+        <span>Цена: {price(hovered.price)}</span>
+        <span>Объём: {money(hovered.quantity, 4, "")}</span>
+        <span>×{cycle.config.leverage}: {money(notional)}</span>
+        {entry ? <span>Свои: {money(notional / Number(cycle.config.leverage))}</span>
+          : <span>Результат: {signed(Number(hovered.realized) - Number(hovered.fee))}</span>}
+        <span>Комиссия: {money(hovered.fee, 3)}</span>
+      </div>;
+    }
+    const markerHandlers = (f) => ({
+      onEnter: () => setHoveredFillId(f.id),
+      onLeave: () => setHoveredFillId((id) => id === f.id ? null : id),
+      onClick: () => setHoveredFillId(f.id),
+    });
     chart = (
-      <svg className="tc-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`График ${coin(cycle.symbol)} с точками входа, докупок и выхода`}>
+      <svg className="tc-svg" viewBox={`0 0 ${W} ${H}`} role="group" aria-label={`График ${coin(cycle.symbol)} с точками входа, докупок и выхода`}>
         {ticks.map((p) => (
           <g key={p}>
             <line x1={L} x2={W - R} y1={y(p)} y2={y(p)} className="tc-grid" />
@@ -143,10 +173,10 @@ export default function TradeChart({ account, cycle, position, onClose }) {
         ))}
         {increases.map((f, i) => {
           const sell = f.side === "SELL";
-          return <Mark key={f.id} x={x(f.at)} y={y(Number(f.price))} down={sell} cls={i === 0 ? "m-entry" : "m-dca"} />;
+          return <Mark key={f.id} x={x(f.at)} y={y(Number(f.price))} down={sell} cls={i === 0 ? "m-entry" : "m-dca"} label={`${i === 0 ? "Вход" : `Докупка W${i + 1}`}, ${when(f.at)}, ${price(f.price)}`} {...markerHandlers(f)} />;
         })}
         {fills.filter((f) => f.action === "decrease").map((f) => (
-          <Mark key={f.id} x={x(f.at)} y={y(Number(f.price))} down={f.side === "SELL"} cls={Number(f.realized) >= 0 ? "m-win" : "m-loss"} size={10} />
+          <Mark key={f.id} x={x(f.at)} y={y(Number(f.price))} down={f.side === "SELL"} cls={Number(f.realized) >= 0 ? "m-win" : "m-loss"} size={10} label={`${CLOSE_REASON[f.reason] || "Выход"}, ${when(f.at)}, ${price(f.price)}`} {...markerHandlers(f)} />
         ))}
       </svg>
     );
@@ -168,7 +198,7 @@ export default function TradeChart({ account, cycle, position, onClose }) {
         </header>
 
         <div className="tc-chart" ref={box}>
-          {err ? <p className="banner">{err}</p> : !candles ? <p className="muted tc-wait">Загрузка свечей {LABEL[intervalMinutes]}…</p> : chart}
+          {err ? <p className="banner">{err}</p> : !candles ? <p className="muted tc-wait">Загрузка свечей {LABEL[intervalMinutes]}…</p> : <>{chart}{tooltip}</>}
         </div>
         <ul className="tc-legend">
           <li><i className="lg-entry" />вход</li>
