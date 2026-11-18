@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { advance, command, createBot, newAccount, summarize, validateConfig, DEFAULT_CONFIG } from "./engine.js";
 import { classifyStage } from "./signals.js";
 import { collectAcceleration } from "../market/bybit.js";
+import { applyFlipRiskPreset } from "../../web/src/flip-risk-preset.js";
 
 const quote = (symbol, mark, now, extra = {}) => ({
   [symbol]: { symbol, mark: String(mark), bid: String(mark), ask: String(mark), at: now, source: "market", turnover: "1000000", ...extra },
@@ -34,6 +35,28 @@ test("hourly 10% exit blacklists the coin and keeps the bot active", () => {
   assert.equal(b.enabled, true);
   advance(a, quote("XUSDT", 100, 900001), 900001);
   assert.equal(a.cycles.length, 1);
+});
+
+test("risk-sized FLIP is an independent strategy with a 75/25 entry and one addition", () => {
+  const a = newAccount("flip-risk", "local", "Flip risk", "market", 0);
+  const config = applyFlipRiskPreset(DEFAULT_CONFIG, 10000, Object.keys(DEFAULT_CONFIG.stages));
+  const b = createBot(a, config, 0);
+  command(a, b.id, "start", {}, 0);
+  const now = 36e5;
+  advance(a, quote("PUMPUSDT", 100, now, { stage: "PUMP", stageAt: now - 1000 }), now);
+  assert.equal(a.cycles.length, 0);
+  advance(a, quote("PUMPUSDT", 100, now + 1000, { stage: "FLIP", stageAt: now }), now + 1000);
+  const c = a.cycles[0];
+  assert.equal(c.stage, "FLIP_RISK");
+  assert.equal(c.direction, "SHORT");
+  assert.equal(c.usedSteps, 1);
+  assert.ok(Math.abs(Number(c.initialMargin) - 150) < 1e-8);
+  advance(a, quote("PUMPUSDT", 104.5, now + 2000), now + 2000);
+  assert.equal(c.usedSteps, 2);
+  assert.ok(Math.abs(Number(c.initialMargin) - 200) < 1e-8);
+  assert.equal(c.config.tpPct, "10");
+  assert.equal(c.config.slPct, "15");
+  assert.equal(c.config.marginAuto, false);
 });
 
 test("hourly gain uses thirteen contiguous completed five-minute closes", async () => {
