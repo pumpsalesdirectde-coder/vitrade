@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { advance, command, createBot, newAccount, summarize, DEFAULT_CONFIG } from "./engine.js";
+import { advance, command, createBot, newAccount, summarize, validateConfig, DEFAULT_CONFIG } from "./engine.js";
 import { classifyStage } from "./signals.js";
 
 const quote = (symbol, mark, now, extra = {}) => ({
@@ -45,14 +45,14 @@ test("пауза останавливает докупки, закрытие п�
 
 test("авто-бот входит по стадии FLIP в шорт", () => {
   const a = newAccount("a2", "local", "Тест", "market", 0);
-  const b = createBot(a, { ...DEFAULT_CONFIG, slippageRate: "0" }, 0);
+  const b = createBot(a, { ...DEFAULT_CONFIG, stages: { ...DEFAULT_CONFIG.stages, FLIP: true }, slippageRate: "0" }, 0);
   command(a, b.id, "start", {}, 0);
   const now = 36e5 * 10;
   advance(a, quote("PUMPUSDT", 1, now, { stage: "FLIP", stageAt: now - 1000 }), now);
   assert.equal(a.cycles[0].direction, "SHORT");
   assert.equal(a.cycles[0].stage, "FLIP");
   const s = summarize(a, quote("PUMPUSDT", 1, now));
-  assert.equal(s.positions[0].grid.length, 8);
+  assert.equal(s.positions[0].grid.length, 9);
 });
 
 test("классификатор стадий: памп +30% и откат 8% — FLIP", () => {
@@ -89,4 +89,25 @@ test("подстраховка выключена — сетка докупае�
   for (const [t, p] of [[1, 100], [10, 105], [20, 110], [30, 121]]) advance(a, quote("XUSDT", p, t * min), t * min);
   assert.equal(a.cycles[0].usedSteps, 5);
   assert.notEqual(a.cycles[0].dcaLocked, true);
+});
+
+test("custom order percentages spend the configured share of grid budget", () => {
+  const a = newAccount("custom", "local", "Test", "market", 0);
+  const b = createBot(a, { ...DEFAULT_CONFIG, mode: "manual", symbol: "XUSDT", budget: "1000", leverage: 1,
+    spacingPct: "2", entryPct: "5", orderPcts: ["6", "7", "8", "9", "10", "11", "12", "13"],
+    slPct: "1000", tpPct: "1000", guardOn: false, marginAuto: false, slippageRate: "0", feeRate: "0" }, 0);
+  command(a, b.id, "start", {}, 0);
+  advance(a, quote("XUSDT", 100, 1000), 1000);
+  assert.equal(a.cycles[0].usedSteps, 1);
+  assert.equal(a.fills[0].quantity, "0.5");
+  for (let i = 1; i <= 8; i++) advance(a, quote("XUSDT", 100 + i * 2, 1000 + i * 1000), 1000 + i * 1000);
+  assert.equal(a.cycles[0].usedSteps, 9);
+  assert.equal(a.fills.length, 9);
+  assert.equal(a.cycles[0].remainingBudget, "190");
+  assert.equal(summarize(a, quote("XUSDT", 116, 9000)).positions[0].grid.length, 9);
+  assert.throws(() => validateConfig({ ...b.config, entryPct: "95" }), /100%/);
+});
+
+test("new bot strategies start unchecked", () => {
+  assert.ok(Object.values(DEFAULT_CONFIG.stages).every((value) => value === false));
 });

@@ -19,9 +19,9 @@ function ladder(cfg, entry) {
   let cost = 0;
   let margin = 0;
   const rows = [];
-  for (let i = 0; i < steps; i++) {
+  for (let i = 0; i < steps + (cfg.orderPcts ? 1 : 0); i++) {
     const p = entry * (1 + dir * sp * i);
-    const amount = budget / steps;
+    const amount = cfg.orderPcts ? budget * Number(i === 0 ? cfg.entryPct : cfg.orderPcts[i - 1]) / 100 : budget / steps;
     const q = (amount * lev) / p;
     qty += q;
     cost += q * p;
@@ -30,14 +30,15 @@ function ladder(cfg, entry) {
     const liq = cfg.direction === "LONG" ? (cost - margin) / (qty * 0.995) : (cost + margin) / (qty * 1.005);
     const target = (budget * Number(cfg.tpPct)) / 100;
     const tp = cfg.direction === "LONG" ? avg + target / qty : avg - target / qty;
-    rows.push({ i, p, move: (p / entry - 1) * 100, used: amount * (i + 1), volume: cost, avg, liq, liqMove: (liq / p - 1) * 100, tp });
+    rows.push({ i, p, move: (p / entry - 1) * 100, amount, used: margin, volume: cost, avg, liq, liqMove: (liq / p - 1) * 100, tp });
   }
   return rows;
 }
 
 const pickConfig = (c) => ({
   name: c.name, mode: c.mode, symbol: c.symbol, direction: c.direction, budget: String(c.budget), leverage: Number(c.leverage),
-  steps: Number(c.steps), spacingPct: String(c.spacingPct), tpPct: String(c.tpPct), slPct: String(c.slPct),
+  steps: Number(c.steps), spacingPct: String(c.spacingPct), entryPct: String(c.entryPct ?? "4.5"),
+  orderPcts: [...(c.orderPcts ?? Array(8).fill("4.5"))].map(String), tpPct: String(c.tpPct), slPct: String(c.slPct),
   feeRate: String(c.feeRate), slippageRate: String(c.slippageRate), marginAuto: !!c.marginAuto, marginCap: String(c.marginCap),
   exclusions: c.exclusions || [], stages: { ...c.stages },
   guardOn: c.guardOn === true, guardStep: Number(c.guardStep ?? 3), guardPct: String(c.guardPct ?? "20"), guardMinutes: Number(c.guardMinutes ?? 60),
@@ -54,6 +55,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
     get("/api/market").then((m) => setQuotes(m.quotes)).catch(() => {});
   }, []);
   const set = (k) => (e) => setCfg({ ...cfg, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.type === "number" ? Number(e.target.value) : e.target.value });
+  const setOrderPct = (index) => (e) => setCfg((prev) => ({ ...prev, orderPcts: prev.orderPcts.map((v, i) => i === index ? e.target.value : v) }));
   const manual = cfg.mode === "manual";
   const mark = Number(quotes.find((q) => q.symbol === cfg.symbol)?.mark || 0);
   const entry = manual && mark ? mark : 100;
@@ -141,6 +143,8 @@ export default function BotForm({ account: a, state, botId, refresh }) {
             <label><Hint term="leverage">Плечо</Hint><input type="number" min={state.limits.leverage[0]} max={state.limits.leverage[1]} value={cfg.leverage} onChange={set("leverage")} /></label>
             <label><Hint term="steps">Шагов сетки</Hint><input type="number" min={state.limits.steps[0]} max={state.limits.steps[1]} value={cfg.steps} onChange={set("steps")} /></label>
             <label><Hint term="spacing">Шаг сетки, %</Hint><input className="num" inputMode="decimal" value={cfg.spacingPct} onChange={set("spacingPct")} /><small className="muted">расстояние от первого входа до каждой следующей докупки</small></label>
+            <label>Первый вход, % бюджета сетки<input className="num" inputMode="decimal" value={cfg.entryPct} onChange={set("entryPct")} /><small className="muted">{money(Number(cfg.budget) * Number(cfg.entryPct) / 100)} маржи</small></label>
+            <div className="order-pcts"><b>Восемь докупок, % бюджета сетки</b><div className="fields four">{cfg.orderPcts.map((value, index) => <label key={index}>Докупка {index + 1}<input className="num" inputMode="decimal" value={value} onChange={setOrderPct(index)} /><small className="muted">{money(Number(cfg.budget) * Number(value) / 100)} маржи</small></label>)}</div><small className="muted">Первый вход и активные докупки вместе не должны превышать 100% бюджета.</small></div>
             <label><Hint term="tp">Тейк-профит, % бюджета</Hint><input className="num" inputMode="decimal" value={cfg.tpPct} onChange={set("tpPct")} /><small className="muted">{money((Number(cfg.budget) * Number(cfg.tpPct)) / 100)} чистыми</small></label>
             <label><Hint term="sl">Стоп-лосс, % бюджета</Hint><input className="num" inputMode="decimal" value={cfg.slPct} onChange={set("slPct")} /><small className="muted">−{money((Number(cfg.budget) * Number(cfg.slPct)) / 100)}</small></label>
           </div>
@@ -187,7 +191,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
                 <tr key={r.i}>
                   <td>{r.i + 1}</td>
                   <td className="num">{manual && mark ? price(r.p) : (r.move > 0 ? "+" : "") + pct(r.move)}</td>
-                  <td className="num">{money(r.used, 0)}</td>
+                  <td className="num">{money(r.amount, 2)} / {money(r.used, 2)}</td>
                   <td className={`num ${Math.abs(r.liqMove) < 15 ? "down" : ""}`}>{pct(Math.abs(r.liqMove))}</td>
                 </tr>
               ))}

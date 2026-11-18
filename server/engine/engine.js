@@ -14,12 +14,12 @@ export const LIMITS = { accounts: 20, botsPerAccount: 20, steps: [1, 8], leverag
 export const DEFAULT_CONFIG = {
   fork: FORK_DEFAULTS,
   name: "Авто-бот", symbol: "BTCUSDT", mode: "auto", direction: "SHORT", budget: "500", leverage: 5, steps: 8,
-  spacingPct: "4.5", tpPct: "1.25", slPct: "100", feeRate: "0.00055", slippageRate: "0.0002",
+  spacingPct: "4.5", entryPct: "4.5", orderPcts: Array(8).fill("4.5"), tpPct: "1.25", slPct: "100", feeRate: "0.00055", slippageRate: "0.0002",
   marginAuto: true, marginCap: "100", exclusions: [],
   // подстраховка: после шага guardStep, если цена за guardMinutes после последней докупки ушла против позиции
   // на guardPct% и больше, бот перестаёт докупать и держит набранный объём
   guardOn: true, guardStep: 3, guardPct: "20", guardMinutes: 60,
-  stages: { RSI_SHORT: false, RSI_LONG: false, PUMP: false, EARLY: true, FLIP: true, DUMP: true, CRASH: false },
+  stages: { RSI_SHORT: false, RSI_LONG: false, PUMP: false, EARLY: false, FLIP: false, DUMP: false, CRASH: false },
 };
 
 export function newAccount(id, ownerId, name, source, now, exchange = "bybit", initial = "10000") {
@@ -149,7 +149,10 @@ function openCycle(a, b, q, now) {
     margin: "0", initialMargin: "0", extraMargin: "0", remainingBudget: b.config.budget, usedSteps: 0, realized: "0",
     fees: "0", funding: "0", openedAt: now, closedAt: null, closeReason: null, lastMark: q.mark,
   };
-  if (increase(a, b, c, q, str(D(c.config.budget).div(c.config.steps)), true, now)) {
+  const firstAmount = c.config.orderPcts
+    ? str(D(c.config.budget).times(c.config.entryPct).div(100))
+    : str(D(c.config.budget).div(c.config.steps));
+  if (increase(a, b, c, q, firstAmount, true, now)) {
     a.cycles.push(c);
     b.currentCycleId = c.id;
     if (c.direction === 'SHORT') observeFork(c, q, normalizeFork(b.config.fork));
@@ -250,10 +253,12 @@ export function advance(a, quotes, now) {
     if (tryOpenFork(a, b, c, q, now, forkOps)) continue;
     guardCheck(a, b, c, q, now);
     if (c.status !== "OPEN" || b.paused || c.dcaLocked || a.fundingGaps.length || free(a).lt(0)) continue;
-    while (c.usedSteps < c.config.steps) {
+    while (c.usedSteps < c.config.steps + (c.config.orderPcts ? 1 : 0)) {
       const boundary = gridPrice(c, c.usedSteps);
       if (c.direction === "LONG" ? D(q.mark).gt(boundary) : D(q.mark).lt(boundary)) break;
-      const amount = c.usedSteps === c.config.steps - 1 ? c.remainingBudget : str(D(c.config.budget).div(c.config.steps));
+      const amount = c.config.orderPcts
+        ? str(D(c.config.budget).times(c.config.orderPcts[c.usedSteps - 1]).div(100))
+        : c.usedSteps === c.config.steps - 1 ? c.remainingBudget : str(D(c.config.budget).div(c.config.steps));
       if (!increase(a, b, c, q, amount, true, now)) break;
     }
   }
@@ -340,6 +345,18 @@ export function validateConfig(input) {
       c[key] = str(v);
     } catch {
       throw Error(`Некорректное значение ${key}`);
+    }
+  }
+  if (c.orderPcts !== undefined) {
+    if (!Array.isArray(c.orderPcts) || c.orderPcts.length !== 8) throw Error("Нужно задать 8 процентов докупок");
+    try {
+      const values = [c.entryPct, ...c.orderPcts].map((value) => D(value));
+      if (values.some((v) => !v.isFinite() || v.lt("0.01") || v.gt(100))
+        || values.slice(0, c.steps + 1).reduce((sum, v) => sum.plus(v), D(0)).gt(100)) throw Error();
+      c.entryPct = str(values[0]);
+      c.orderPcts = values.slice(1).map(str);
+    } catch {
+      throw Error("Доли первого входа и докупок должны быть больше 0 и вместе не превышать 100% бюджета сетки");
     }
   }
   // подстраховка: у старых ботов полей нет — считаем выключенной
@@ -452,7 +469,7 @@ export function summarize(a, quotes) {
   const positions = a.cycles.filter((c) => c.status !== "CLOSED").map((c) => {
     const q = quotes[c.symbol];
     const p = q?.source === a.source && positive(q?.mark) ? q.mark : c.lastMark;
-    const grid = positive(c.anchor) ? Array.from({ length: c.config.steps }, (_, i) => str(gridPrice(c, i))) : [];
+    const grid = positive(c.anchor) ? Array.from({ length: c.config.steps + (c.config.orderPcts ? 1 : 0) }, (_, i) => str(gridPrice(c, i))) : [];
     return {
       ...c, mark: p, pnl: str(unrealized(c, p)), net: str(totalResult(c, p)), breakEven: breakEven(c),
       liquidation: liquidation(c), lr: lr(c, p), grid,

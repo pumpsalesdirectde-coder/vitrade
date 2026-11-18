@@ -5,7 +5,8 @@ import {D,free} from './accounting.js';
 const quotes=(p,t)=>({XUSDT:{symbol:'XUSDT',mark:String(p),bid:String(p),ask:String(p),source:'market',at:t}});
 function setup(fork={}) {
   const a=newAccount('a','u','test','market',0,'bybit','100000');
-  const b=createBot(a,{...DEFAULT_CONFIG,mode:'manual',symbol:'XUSDT',budget:'1000',leverage:1,steps:4,spacingPct:'10',tpPct:'100',slPct:'1000',marginAuto:false,guardOn:false,feeRate:'0.00055',slippageRate:'0.0002',fork:{enabled:true,capMode:'fixed',capAmount:'50000',stepPct:'10',...fork}},0);
+  const {entryPct,orderPcts,...legacyConfig}=DEFAULT_CONFIG;
+  const b=createBot(a,{...legacyConfig,mode:'manual',symbol:'XUSDT',budget:'1000',leverage:1,steps:4,spacingPct:'10',tpPct:'100',slPct:'1000',marginAuto:false,guardOn:false,feeRate:'0.00055',slippageRate:'0.0002',fork:{enabled:true,capMode:'fixed',capAmount:'50000',stepPct:'10',...fork}},0);
   command(a,b.id,'start',{},0); advance(a,quotes(10,1000),1000);
   return {a,b};
 }
@@ -70,7 +71,7 @@ test('invalid or stale quotes cannot open or execute a pair',()=>{
 });
 test('other bot reservations and negative wallet prevent funding a hedge',()=>{
   const {a,b}=setup(); a.cash='2750';
-  const other=createBot(a,{...DEFAULT_CONFIG,budget:'2000',fork:{enabled:false}},2000);
+  const other=createBot(a,{...DEFAULT_CONFIG,budget:'2000',stages:{...DEFAULT_CONFIG.stages,FLIP:true},fork:{enabled:false}},2000);
   command(a,other.id,'start',{},2000);
   advance(a,quotes(12.1,5000),5000);
   assert.equal(a.forks?.length||0,0); assert.match(b.forkStatus,/средств/);

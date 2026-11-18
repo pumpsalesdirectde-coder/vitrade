@@ -294,6 +294,8 @@ td > .chip:first-child { margin-left: 0; }
 .bot-form fieldset { border: 0; border-top: 1px solid var(--border); padding: 16px 0 22px; margin: 0; display: flex; flex-direction: column; gap: 12px; }
 .bot-form legend { font-weight: 600; padding: 0 .6rem 0 0; color: var(--ink); }
 .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 18px; }
+.order-pcts { grid-column: 1 / -1; display: grid; gap: 10px; }
+.order-pcts .fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .fields.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .choice label, .strategies label {
@@ -387,7 +389,7 @@ td > .chip:first-child { margin-left: 0; }
   .pos-nums dd { white-space: normal; }
   .position { grid-template-columns: 1fr; }
   .pos-nums { grid-template-columns: repeat(3, auto); }
-  .fields, .fields.two, .choice, .strategies, .tiles, .tiles.three, .records, .guide-list, .stage-strip { grid-template-columns: 1fr; }
+  .fields, .fields.two, .order-pcts .fields, .choice, .strategies, .tiles, .tiles.three, .records, .guide-list, .stage-strip { grid-template-columns: 1fr; }
   .events li { grid-template-columns: 1fr auto; }
   .events .ev-type { display: none; }
   .events time { grid-column: 1 / -1; font-size: .76rem; }
