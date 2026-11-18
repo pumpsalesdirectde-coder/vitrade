@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { get, post } from "../api.js";
 import { STRATEGY, STRATEGY_ORDER, coin, money, pct, price } from "../format.js";
+import { applyFlipRiskPreset, flipRiskSizing } from "../flip-risk-preset.js";
 import Hint from "../ui/Hint.jsx";
 
 /**
@@ -53,18 +54,19 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   const [quotes, setQuotes] = useState([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const riskSizing = Number(a.equity) >= 50 ? flipRiskSizing(a.equity) : null;
   useEffect(() => {
     get("/api/market").then((m) => setQuotes(m.quotes)).catch(() => {});
   }, []);
   const restorePreviousConfig = (prev, snapshot) => {
     const original = snapshot ?? pickConfig({ ...state.defaults, name: prev.name });
-    return { ...original, stages: { ...original.stages, DUMP_ACCEL: false } };
+    return { ...original, stages: { ...original.stages, DUMP_ACCEL: false, FLIP_RISK: false } };
   };
   const set = (k) => (e) => {
     const value = e.target.type === "checkbox" ? e.target.checked : e.target.type === "number" ? Number(e.target.value) : e.target.value;
     const snapshot = beforePreset.current;
-    if (k === "mode" && value === "manual" && cfg.stages.DUMP_ACCEL) beforePreset.current = null;
-    setCfg((prev) => k === "mode" && value === "manual" && prev.stages.DUMP_ACCEL
+    if (k === "mode" && value === "manual" && (cfg.stages.DUMP_ACCEL || cfg.stages.FLIP_RISK)) beforePreset.current = null;
+    setCfg((prev) => k === "mode" && value === "manual" && (prev.stages.DUMP_ACCEL || prev.stages.FLIP_RISK)
       ? { ...restorePreviousConfig(prev, snapshot), mode: value }
       : { ...prev, [k]: value });
   };
@@ -80,12 +82,22 @@ export default function BotForm({ account: a, state, botId, refresh }) {
     stages: Object.fromEntries(STRATEGY_ORDER.map((key) => [key, key === "DUMP_ACCEL"])),
   });
   const selectStrategy = (key, checked) => {
+    if (key === "FLIP_RISK" && checked && !riskSizing) {
+      setErr("Для этой стратегии капитал счёта должен быть не меньше $50.");
+      return;
+    }
+    setErr("");
     const snapshot = beforePreset.current;
-    if (key === "DUMP_ACCEL" && checked) beforePreset.current = structuredClone(cfg);
-    else if (cfg.stages.DUMP_ACCEL) beforePreset.current = null;
+    const special = key === "DUMP_ACCEL" || key === "FLIP_RISK";
+    const wasPreset = cfg.stages.DUMP_ACCEL || cfg.stages.FLIP_RISK;
+    if (special && checked && !wasPreset) beforePreset.current = structuredClone(cfg);
+    else if (wasPreset && (!special || !checked)) beforePreset.current = null;
     setCfg((prev) => {
       if (key === "DUMP_ACCEL") return checked ? applyDump10Preset(prev) : restorePreviousConfig(prev, snapshot);
-      const base = prev.stages.DUMP_ACCEL ? restorePreviousConfig(prev, snapshot) : prev;
+      if (key === "FLIP_RISK") return checked
+        ? applyFlipRiskPreset(prev, a.equity, STRATEGY_ORDER, editing ? prev.name : "Подтверждённый разворот — расчётный риск")
+        : restorePreviousConfig(prev, snapshot);
+      const base = wasPreset ? restorePreviousConfig(prev, snapshot) : prev;
       return { ...base, stages: { ...base.stages, [key]: checked } };
     });
   };
@@ -93,7 +105,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   const mark = Number(quotes.find((q) => q.symbol === cfg.symbol)?.mark || 0);
   const entry = manual && mark ? mark : 100;
   // У авто-бота сторону задаёт стратегия: лонг только у «Отскока» и RSI-лонга.
-  const shortPicked = ["RSI_SHORT", "PUMP", "EARLY", "FLIP", "DUMP", "DUMP_ACCEL"].some((k) => cfg.stages[k]);
+  const shortPicked = ["RSI_SHORT", "PUMP", "EARLY", "FLIP", "FLIP_RISK", "DUMP", "DUMP_ACCEL"].some((k) => cfg.stages[k]);
   const dirPrev = manual ? cfg.direction : shortPicked ? "SHORT" : "LONG";
   const rows = useMemo(() => ladder({ ...cfg, direction: dirPrev }, entry), [cfg, entry, dirPrev]);
   const last = rows.at(-1);
@@ -159,6 +171,12 @@ export default function BotForm({ account: a, state, botId, refresh }) {
             </div>
           ) : (
             <div className="strategies">
+              {cfg.stages.FLIP_RISK && riskSizing && <p className="muted note">
+                При капитале {money(a.equity, 0)} расчётный бюджет одного бота {money(riskSizing.budget, 2)};
+                до {riskSizing.bots} одновременно работающих ботов при свободном счёте.
+                Вход 75%, одно усреднение 25%, плечо ×2, тейк 10% и стоп 15% бюджета.
+                Бюджет фиксируется при выборе стратегии. После изменения капитала или числа других ботов пересчитайте общий риск.
+              </p>}
               {STRATEGY_ORDER.map((k) => (
                 <label key={k} className={cfg.stages[k] ? "on" : ""}>
                   <input type="checkbox" checked={!!cfg.stages[k]} onChange={(e) => selectStrategy(k, e.target.checked)} />

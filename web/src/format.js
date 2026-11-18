@@ -36,6 +36,7 @@ export const when = (t) =>
 export const coin = (symbol) => (symbol || "").replace(/USDT$/, "");
 
 export const STRATEGY = {
+  FLIP_RISK: { short: "Разворот 2%", name: "Подтверждённый разворот — расчётный риск", about: "Тот же сигнал FLIP: рост от 20% и откат 5–12%. Пресет для счёта: бюджет 2%, вход 75/25, плечо ×2, тейк 10%, стоп 15% бюджета." },
   RSI_SHORT: { short: "RSI ↓", name: "RSI · шорт", about: "RSI(14) на 5-минутках вернулся ниже 70 после перекупленности. 50 самых ликвидных монет." },
   RSI_LONG: { short: "RSI ↑", name: "RSI · лонг", about: "RSI(14) на 5-минутках вернулся выше 30 после перепроданности. 50 самых ликвидных монет." },
   PUMP: { short: "Памп", name: "Памп", about: "Цена выросла на 15%+ и держится у вершины. Шорт на продолжении — самый рискованный вход." },
@@ -45,7 +46,7 @@ export const STRATEGY = {
   DUMP_ACCEL: { short: "Слив · 10%", name: "DUMP SHORT — выход 10% за час", about: "Шорт по сигналу «Слив». После трёх исполненных шагов: закрыть убыточную позицию при росте монеты на 10%+ за час; монету больше не брать. Выбор применяет настройки изученной стратегии." },
   CRASH: { short: "Отскок", name: "Отскок после обвала", about: "Обвал 25%+ от недавней вершины и первые признаки отскока. Лонг." },
 };
-export const STRATEGY_ORDER = ["EARLY", "FLIP", "DUMP", "DUMP_ACCEL", "PUMP", "CRASH", "RSI_SHORT", "RSI_LONG"];
+export const STRATEGY_ORDER = ["EARLY", "FLIP", "FLIP_RISK", "DUMP", "DUMP_ACCEL", "PUMP", "CRASH", "RSI_SHORT", "RSI_LONG"];
 
 export const entryLabel = (cycle) =>
   cycle.forkId && cycle.direction === "LONG" ? "Вилка · лонг"
