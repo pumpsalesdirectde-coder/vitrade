@@ -60,6 +60,44 @@ test("ручной шорт: вход, докупка по сетке, тейк-
   assert.ok(Number(a.cash) > 10000);
 });
 
+test('настройки открытой сделки обновляют будущие шаги и защиту без изменения исполненного входа', () => {
+  const { a, b } = manualAccount('SHORT');
+  advance(a, quote('XUSDT', 100, 1000), 1000);
+  const c = a.cycles[0];
+  const first = a.fills[0];
+  const spent = Number(c.config.budget) - Number(c.remainingBudget);
+  const next = { ...b.config, budget: '1000', leverage: 3, tpPct: '3', slPct: '50',
+    steps: 7, spacingPct: '4.5', marginAuto: false, orderPcts: b.config.orderPcts.map((pct, i) => i === 0 ? '6' : pct) };
+  command(a, b.id, 'update', next, 1500);
+  assert.equal(c.config.budget, '1000');
+  assert.equal(c.config.tpPct, '3');
+  assert.equal(c.config.slPct, '50');
+  assert.equal(c.config.marginAuto, false);
+  assert.equal(c.config.leverage, 5);
+  assert.equal(b.config.leverage, 3);
+  assert.equal(c.config.entryPct, '4.5');
+  assert.equal(Number(c.remainingBudget), 1000 - spent);
+  advance(a, quote('XUSDT', 104.5, 2000), 2000);
+  assert.equal(c.usedSteps, 2);
+  assert.ok(Math.abs(Number(a.fills[1].quantity) * Number(a.fills[1].price) - 300) < 1e-8);
+  assert.equal(a.fills[0].id, first.id);
+  assert.equal(a.fills[0].quantity, first.quantity);
+});
+
+test('нельзя сократить живую сетку ниже выполненного или уменьшить бюджет ниже потраченного', () => {
+  const { a, b } = manualAccount('SHORT');
+  advance(a, quote('XUSDT', 100, 1000), 1000);
+  advance(a, quote('XUSDT', 105, 2000), 2000);
+  advance(a, quote('XUSDT', 110, 3000), 3000);
+  const c = a.cycles[0], original = structuredClone(c);
+  assert.throws(() => command(a, b.id, 'update', { ...b.config, steps: 1 }, 2500), /исполненных шагов/);
+  assert.throws(() => command(a, b.id, 'update', { ...b.config, budget: '10' }, 2500), /бюджет меньше/);
+  assert.throws(() => command(a, b.id, 'update', { ...b.config, orderPcts: ['0.01', '0.01', ...Array(6).fill('15.8')] }, 2500), /будущие докупки превышают/);
+  assert.throws(() => command(a, b.id, 'update', { ...b.config, budget: '100000' }, 2500), /свободных средств/);
+  assert.deepEqual(c, original);
+  assert.equal(b.config.steps, 8);
+});
+
 test("пауза останавливает докупки, закрытие по рынку закрывает позицию", () => {
   const { a, b } = manualAccount("LONG");
   advance(a, quote("XUSDT", 100, 1000), 1000);

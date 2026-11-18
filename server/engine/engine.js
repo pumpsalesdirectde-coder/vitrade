@@ -424,6 +424,28 @@ export function createBot(a, config, now) {
   return b;
 }
 
+/** Меняем только будущие действия открытой сделки; исполненные ордера и их условия остаются в истории. */
+function updateOpenCycle(c, next) {
+  const old = c.config;
+  const hasOrders = !!old.orderPcts;
+  const maxUsed = next.steps + (hasOrders ? 1 : 0);
+  if (maxUsed < c.usedSteps) throw Error('Нельзя уменьшить сетку ниже числа уже исполненных шагов');
+  const spent = D(old.budget).minus(c.remainingBudget);
+  if (D(next.budget).lt(spent)) throw Error('Новый бюджет меньше суммы уже исполненных покупок');
+  const live = { ...old };
+  for (const key of ['budget', 'steps', 'spacingPct', 'tpPct', 'slPct', 'marginAuto', 'marginCap',
+    'guardOn', 'guardStep', 'guardPct', 'guardMinutes', 'accelerationStopOn', 'accelerationStopPct']) live[key] = next[key];
+  if (hasOrders) {
+    live.orderPcts = old.orderPcts.map((value, i) => i >= c.usedSteps - 1 ? (next.orderPcts ?? old.orderPcts)[i] : value);
+    const future = live.orderPcts.slice(c.usedSteps - 1, next.steps)
+      .reduce((sum, pct) => sum.plus(D(next.budget).times(pct).div(100)), D(0));
+    if (spent.plus(future).gt(next.budget)) throw Error('Исполненные покупки и будущие докупки превышают новый бюджет сетки');
+  }
+  c.remainingBudget = str(D(next.budget).minus(spent));
+  c.config = live;
+  c.version = (c.version || 0) + 1;
+}
+
 export function command(a, botId, action, payload = {}, now = Date.now()) {
   const b = a.bots.find((x) => x.id === botId);
   if (!b || a.archived) throw Error("Бот не найден");
@@ -448,7 +470,15 @@ export function command(a, botId, action, payload = {}, now = Date.now()) {
       Object.assign(b, { enabled: true, paused: false, finish: false, activatedAt: now, lastReason: "Ждёт цены / сигнала" });
       break;
     case "update":
-      b.config = validateConfig(payload);
+      {
+        const next = validateConfig(payload);
+        if (c?.status === 'OPEN' && !pair && !c.forkId) {
+          const extra = D(next.budget).minus(c.config.budget);
+          if (extra.gt(0) && free(a).lt(extra)) throw Error('Недостаточно свободных средств для увеличения бюджета сетки');
+          updateOpenCycle(c, next);
+        }
+        b.config = next;
+      }
       b.version++;
       break;
     case "pause":

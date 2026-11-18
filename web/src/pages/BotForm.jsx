@@ -110,6 +110,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
     ["Этот бот: подушка маржи", thisCushion, "seg-cushion"],
   ].filter(([, v], i) => v > 0 || i === 2);
   const restFree = capital - parts.reduce((s, [, v]) => s + v, 0);
+  const liveCycle = editing && a.cycles.find((c) => c.id === editing.currentCycleId && c.status === "OPEN");
   const busyBot = editing && editing.currentCycleId;
 
   const submit = async (start) => {
@@ -134,8 +135,10 @@ export default function BotForm({ account: a, state, botId, refresh }) {
       <form className="bot-form" onSubmit={(e) => { e.preventDefault(); submit(true); }}>
         <header className="block-head">
           <h2>{editing ? `Настройки «${editing.config.name}»` : "Новый бот"}</h2>
-          <p className="muted">Счёт «{a.name}» · бумажная торговля по ценам Bybit{busyBot ? " · у бота открыта сделка: новые параметры применятся со следующей" : ""}</p>
+          <p className="muted">Счёт «{a.name}» · бумажная торговля по ценам Bybit</p>
         </header>
+        {liveCycle && <p className="banner">Открытая сделка {coin(liveCycle.symbol)}: тейк, стоп, бюджет и будущие шаги сетки, подушка и защиты обновятся после сохранения. Исполненные покупки, плечо, сторона и монета текущей позиции не меняются. Выбор монет и стратегии входа действуют со следующей сделки.</p>}
+        {busyBot && !liveCycle && <p className="banner">Текущая сделка закрывается или связана с вилкой. Новые настройки бота начнут действовать со следующей сделки.</p>}
 
         <fieldset>
           <legend>Как бот выбирает монету</legend>
@@ -218,6 +221,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
 
       <aside className="preview" aria-label="Расчёт сетки">
         <h3>Как пойдёт сетка</h3>
+        {liveCycle && <p className="muted">Предварительный расчёт всей сетки для следующей сделки. В текущей позиции уже исполненные шаги остаются прежними.</p>}
         <p className="muted">{manual && mark ? `От текущей цены ${coin(cfg.symbol)}.` : "В процентах от цены первого входа."} {dirPrev === "SHORT" ? "Расчёт для шорта: докупки выше входа." : "Расчёт для лонга: докупки ниже входа."}</p>
         {rows.length > 0 && (
           <table className="ladder">
