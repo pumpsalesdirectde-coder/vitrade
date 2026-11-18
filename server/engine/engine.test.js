@@ -155,3 +155,18 @@ test("researched eight-order grid uses the full budget at 12.5 percent per order
   assert.equal(a.cycles[0].remainingBudget, "0");
   assert.equal(a.fills.filter((f) => f.action === "increase").length, 8);
 });
+
+test("acceleration strategy is a separate DUMP selection and enables its protection", () => {
+  const a = newAccount("dump-accel", "local", "DUMP acceleration", "market", 0);
+  const b = createBot(a, { ...DEFAULT_CONFIG, mode: "auto", direction: "SHORT",
+    stages: { ...DEFAULT_CONFIG.stages, DUMP_ACCEL: true }, accelerationStopOn: false,
+    steps: 7, entryPct: "12.5", orderPcts: Array(8).fill("12.5") }, 0);
+  assert.equal(b.config.accelerationStopOn, true);
+  command(a, b.id, "start", {}, 0);
+  advance(a, quote("XUSDT", 100, 3600000, { stage: "PUMP", stageAt: 3600000 }), 3600000);
+  assert.equal(a.cycles.length, 0);
+  advance(a, quote("XUSDT", 100, 3600001, { stage: "DUMP", stageAt: 3600000 }), 3600001);
+  assert.equal(a.cycles.length, 1);
+  assert.equal(a.cycles[0].stage, "DUMP_ACCEL");
+  assert.equal(a.cycles[0].direction, "SHORT");
+});

@@ -42,7 +42,7 @@ const pickConfig = (c) => ({
   feeRate: String(c.feeRate), slippageRate: String(c.slippageRate), marginAuto: !!c.marginAuto, marginCap: String(c.marginCap),
   exclusions: c.exclusions || [], stages: { ...c.stages }, fork: c.fork,
   guardOn: c.guardOn === true, guardStep: Number(c.guardStep ?? 3), guardPct: String(c.guardPct ?? "20"), guardMinutes: Number(c.guardMinutes ?? 60),
-  accelerationStopOn: c.accelerationStopOn === true, accelerationStopPct: String(c.accelerationStopPct ?? "10"),
+  accelerationStopOn: c.stages?.DUMP_ACCEL === true || c.accelerationStopOn === true, accelerationStopPct: String(c.accelerationStopPct ?? "10"),
 });
 
 export default function BotForm({ account: a, state, botId, refresh }) {
@@ -55,23 +55,35 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   useEffect(() => {
     get("/api/market").then((m) => setQuotes(m.quotes)).catch(() => {});
   }, []);
-  const set = (k) => (e) => setCfg({ ...cfg, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.type === "number" ? Number(e.target.value) : e.target.value });
+  const set = (k) => (e) => {
+    const value = e.target.type === "checkbox" ? e.target.checked : e.target.type === "number" ? Number(e.target.value) : e.target.value;
+    setCfg((prev) => k === "mode" && value === "manual" && prev.stages.DUMP_ACCEL
+      ? { ...prev, mode: value, accelerationStopOn: false, stages: { ...prev.stages, DUMP_ACCEL: false } }
+      : { ...prev, [k]: value });
+  };
   const setOrderPct = (index) => (e) => setCfg((prev) => ({ ...prev, orderPcts: prev.orderPcts.map((v, i) => i === index ? e.target.value : v) }));
-  const applyDump10Preset = () => setCfg((prev) => ({
-    ...prev, name: "DUMP SHORT — выход 10% за час", mode: "auto", direction: "SHORT",
+  const applyDump10Preset = (prev) => ({
+    ...prev, name: editing ? prev.name : "DUMP SHORT — выход 10% за час", mode: "auto", direction: "SHORT",
     budget: "500", leverage: 5, steps: 7, spacingPct: "4.5", entryPct: "12.5",
     orderPcts: Array(8).fill("12.5"), tpPct: "1.5", slPct: "200",
     feeRate: "0.0005", slippageRate: "0.0002", marginAuto: true, marginCap: "1000",
     guardOn: true, guardStep: 3, guardPct: "20", guardMinutes: 60,
     accelerationStopOn: true, accelerationStopPct: "10",
     fork: { ...prev.fork, enabled: false },
-    stages: Object.fromEntries(Object.keys(prev.stages).map((key) => [key, key === "DUMP"])),
-  }));
+    stages: Object.fromEntries(STRATEGY_ORDER.map((key) => [key, key === "DUMP_ACCEL"])),
+  });
+  const selectStrategy = (key, checked) => setCfg((prev) => {
+    if (key === "DUMP_ACCEL") return checked ? applyDump10Preset(prev)
+      : { ...prev, stages: { ...prev.stages, DUMP_ACCEL: false }, accelerationStopOn: false };
+    const stages = { ...prev.stages, [key]: checked };
+    if (prev.stages.DUMP_ACCEL) stages.DUMP_ACCEL = false;
+    return { ...prev, stages, accelerationStopOn: prev.stages.DUMP_ACCEL ? false : prev.accelerationStopOn };
+  });
   const manual = cfg.mode === "manual";
   const mark = Number(quotes.find((q) => q.symbol === cfg.symbol)?.mark || 0);
   const entry = manual && mark ? mark : 100;
   // У авто-бота сторону задаёт стратегия: лонг только у «Отскока» и RSI-лонга.
-  const shortPicked = ["RSI_SHORT", "PUMP", "EARLY", "FLIP", "DUMP"].some((k) => cfg.stages[k]);
+  const shortPicked = ["RSI_SHORT", "PUMP", "EARLY", "FLIP", "DUMP", "DUMP_ACCEL"].some((k) => cfg.stages[k]);
   const dirPrev = manual ? cfg.direction : shortPicked ? "SHORT" : "LONG";
   const rows = useMemo(() => ladder({ ...cfg, direction: dirPrev }, entry), [cfg, entry, dirPrev]);
   const last = rows.at(-1);
@@ -110,7 +122,6 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   return (
     <div className="form-page">
       <form className="bot-form" onSubmit={(e) => { e.preventDefault(); submit(true); }}>
-        <button type="button" className="btn" onClick={applyDump10Preset}>Применить настройки DUMP SHORT — выход 10% за час</button>
         <header className="block-head">
           <h2>{editing ? `Настройки «${editing.config.name}»` : "Новый бот"}</h2>
           <p className="muted">Счёт «{a.name}» · бумажная торговля по ценам Bybit{busyBot ? " · у бота открыта сделка: новые параметры применятся со следующей" : ""}</p>
@@ -137,11 +148,12 @@ export default function BotForm({ account: a, state, botId, refresh }) {
             <div className="strategies">
               {STRATEGY_ORDER.map((k) => (
                 <label key={k} className={cfg.stages[k] ? "on" : ""}>
-                  <input type="checkbox" checked={!!cfg.stages[k]} onChange={(e) => setCfg({ ...cfg, stages: { ...cfg.stages, [k]: e.target.checked } })} />
+                  <input type="checkbox" checked={!!cfg.stages[k]} onChange={(e) => selectStrategy(k, e.target.checked)} />
                   <b>{STRATEGY[k].name}</b>
                   <span>{STRATEGY[k].about}</span>
                 </label>
               ))}
+              {cfg.stages.DUMP_ACCEL && <p className="muted note">Для этой стратегии применены параметры исследованного варианта. Остальные стратегии сняты, поскольку они используют общие настройки бота.</p>}
               <p className="muted note">Если сигналов несколько — бот берёт монету с бóльшим оборотом. По одной монете на счёте одна позиция; после закрытия по стадии повтор не раньше чем через 24 ч.</p>
             </div>
           )}
@@ -176,7 +188,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
               <label>За время, мин<input type="number" min={5} max={240} value={cfg.guardMinutes} onChange={set("guardMinutes")} /><small className="muted">окно наблюдения, 5–240 мин</small></label>
             </div>
           )}
-          <label className="check big-check"><input type="checkbox" checked={cfg.accelerationStopOn} onChange={set("accelerationStopOn")} />
+          <label className="check big-check"><input type="checkbox" checked={cfg.accelerationStopOn} disabled={!!cfg.stages.DUMP_ACCEL} onChange={set("accelerationStopOn")} />
             <span>Защитный выход SHORT: рост монеты за завершённый час, минимум три шага сетки и убыточное закрытие. После стопа монета исключается для всех ботов этого счёта; бот продолжает работу.</span></label>
           {cfg.accelerationStopOn && <label>Рост за час, %<input className="num" inputMode="decimal" value={cfg.accelerationStopPct} onChange={set("accelerationStopPct")} /></label>}
           {!manual && <label>Не торговать монеты<input value={excl} onChange={(e) => setExcl(e.target.value)} placeholder="Например: JCT, ARIA" /></label>}

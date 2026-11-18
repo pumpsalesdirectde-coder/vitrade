@@ -1,7 +1,7 @@
 // Сигналы входа: RSI(14) на 5-минутках и стадии памп-цикла на часовых свечах.
 
 export const STAGE_KEYS = ["PUMP", "EARLY", "FLIP", "DUMP", "CRASH"];
-export const STRATEGY_KEYS = ["RSI_SHORT", "RSI_LONG", ...STAGE_KEYS];
+export const STRATEGY_KEYS = ["RSI_SHORT", "RSI_LONG", ...STAGE_KEYS, "DUMP_ACCEL"];
 
 export function rsi(prices, period = 14) {
   if (prices.length < period + 1 || prices.some((p) => !Number.isFinite(p) || p <= 0)) return null;

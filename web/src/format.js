@@ -42,9 +42,10 @@ export const STRATEGY = {
   EARLY: { short: "Ранний", name: "Ранний разворот", about: "После пампа 15%+ цена отошла от вершины на 3–5%. Шорт." },
   FLIP: { short: "Разворот", name: "Подтверждённый разворот", about: "После пампа 20%+ откат 5–12% от вершины. Шорт." },
   DUMP: { short: "Слив", name: "Слив", about: "После пампа 20%+ падение 12–40% и цена ниже, чем 3 часа назад. Шорт по тренду." },
+  DUMP_ACCEL: { short: "Слив · 10%", name: "Слив · выход при росте 10% за час", about: "Шорт по сигналу «Слив». После трёх исполненных шагов: закрыть убыточную позицию при росте монеты на 10%+ за час; монету больше не брать. Выбор применяет настройки изученной стратегии." },
   CRASH: { short: "Отскок", name: "Отскок после обвала", about: "Обвал 25%+ от недавней вершины и первые признаки отскока. Лонг." },
 };
-export const STRATEGY_ORDER = ["EARLY", "FLIP", "DUMP", "PUMP", "CRASH", "RSI_SHORT", "RSI_LONG"];
+export const STRATEGY_ORDER = ["EARLY", "FLIP", "DUMP", "DUMP_ACCEL", "PUMP", "CRASH", "RSI_SHORT", "RSI_LONG"];
 
 export const entryLabel = (cycle) =>
   cycle.forkId && cycle.direction === "LONG" ? "Вилка · лонг"
