@@ -25,6 +25,18 @@ function AccountRow({ a, refresh, onPick, setErr }) {
       setErr(`${a.name}: ${e.message}`);
     }
   };
+  const remove = async () => {
+    const name = prompt(`Удалить счёт «${a.name}» полностью? Будут удалены ${a.bots.length} ботов, ${a.positions.length} открытых позиций и вся история сделок. Открытые позиции не закрываются по рынку. Для подтверждения введите точное название счёта:`);
+    if (name === null) return;
+    if (name !== a.name) { setErr('Название не совпадает — счёт не удалён'); return; }
+    try {
+      await post(`/api/accounts/${a.id}/delete`, { name });
+      setErr('');
+      refresh();
+    } catch (e) {
+      setErr(`${a.name}: ${e.message}`);
+    }
+  };
   // нажатие на счёт открывает его ботов
   const open = () => {
     if (a.archived || edit) return;
@@ -57,6 +69,7 @@ function AccountRow({ a, refresh, onPick, setErr }) {
           {a.archived
             ? <button onClick={() => act("restore")}>Вернуть из архива</button>
             : <button className="ghost danger-text" onClick={() => confirm(`Отправить счёт «${a.name}» в архив? Боты остановятся, история сохранится.`) && act("archive")}>В архив</button>}
+          {!edit && <button className="ghost danger-text" onClick={remove}>Удалить полностью</button>}
         </div>
       </td>
     </tr>
@@ -80,6 +93,18 @@ export default function Exchanges({ state, refresh, onPick }) {
       setErr(x.message);
     }
   };
+  const removeExchange = async (exchange) => {
+    const accounts = state.accounts.filter((a) => a.exchange === exchange.id);
+    const name = prompt(`Удалить все ${accounts.length} счётов Bybit вместе с ботами, открытыми позициями и всей историей? Позиции не закрываются по рынку. Для подтверждения введите Bybit:`);
+    if (name === null) return;
+    if (name !== 'Bybit') { setErr('Подтверждение не совпало — счета не удалены'); return; }
+    try {
+      await post('/api/exchanges/bybit/delete', { confirm: name });
+      setErr('');
+      onPick('');
+      refresh();
+    } catch (e) { setErr(e.message); }
+  };
 
   return (
     <div className="exchanges">
@@ -96,7 +121,10 @@ export default function Exchanges({ state, refresh, onPick }) {
               <b className="ex-logo">{x.name}</b>
               <span className={`state ${x.status === "ready" ? "live" : "off"}`}>{x.status === "ready" ? "Данные подключены" : "Скоро"}</span>
             </div>
-            {x.status === "ready" && !open && <button className="primary" onClick={() => setOpen(true)}>Открыть paper-счёт</button>}
+            {x.status === "ready" && <div className="row-actions">
+              {!open && <button className="primary" onClick={() => setOpen(true)}>Открыть paper-счёт</button>}
+              {state.accounts.some((a) => a.exchange === x.id) && <button className="ghost danger-text" onClick={() => removeExchange(x)}>Удалить биржу с ботами</button>}
+            </div>}
           </header>
           <p className="muted small">{x.note}</p>
           {x.status === "ready" && (

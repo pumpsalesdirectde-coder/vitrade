@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
-import { getValue, insertAccount, listAccounts, mutateAccount, readAccount, transaction } from "./db.js";
+import { deleteAccount, deleteExchangeAccounts, getValue, insertAccount, listAccounts, mutateAccount, readAccount, transaction } from "./db.js";
 import { DEFAULT_CONFIG, LIMITS, command, createBot, newAccount, summarize } from "./engine/engine.js";
 import { D, positive } from "./engine/accounting.js";
 import { forkPlan } from './engine/fork.js';
@@ -173,6 +173,16 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
         }
       });
       return { ok: true };
+    }],
+    ["POST", /^\/api\/accounts\/([\w-]+)\/delete$/, async (ctx, m) => {
+      const p = await body(ctx.req);
+      deleteAccount(db, m[1], ctx.user.id, p.name);
+      return { ok: true };
+    }],
+    ["POST", /^\/api\/exchanges\/bybit\/delete$/, async (ctx) => {
+      const p = await body(ctx.req);
+      if (p.confirm !== 'Bybit') throw fail('Для удаления введите Bybit');
+      return { ok: true, deleted: deleteExchangeAccounts(db, ctx.user.id, 'bybit') };
     }],
     ["POST", /^\/api\/accounts\/([\w-]+)\/bots$/, async (ctx, m) => {
       const p = await body(ctx.req);

@@ -69,6 +69,40 @@ export function insertAccount(db, a) {
   });
 }
 
+/** Безвозвратно удалить один paper-счёт вместе со всеми вложенными данными. */
+export function deleteAccount(db, id, ownerId, expectedName) {
+  return transaction(db, () => {
+    const row = db.prepare('SELECT state FROM accounts WHERE id=?').get(id);
+    if (!row) throw Error('Счёт не найден');
+    const a = JSON.parse(row.state);
+    if (a.ownerId !== ownerId) throw Error('Счёт не найден');
+    if (a.name !== expectedName) throw Error('Название счёта не совпадает');
+    db.prepare('DELETE FROM commands WHERE account_id=?').run(id);
+    if (hasSnapshotStorage(db)) db.prepare('DELETE FROM account_snapshots WHERE account_id=?').run(id);
+    db.prepare('DELETE FROM accounts WHERE id=?').run(id);
+    clearSnapshotCache(db);
+  });
+}
+
+/** Удалить все счета пользователя на указанной бирже одной транзакцией. */
+export function deleteExchangeAccounts(db, ownerId, exchange) {
+  return transaction(db, () => {
+    const ids = db.prepare('SELECT id,state FROM accounts').all()
+      .filter(row => { const a = JSON.parse(row.state); return a.ownerId === ownerId && a.exchange === exchange; })
+      .map(row => row.id);
+    const delCommands = db.prepare('DELETE FROM commands WHERE account_id=?');
+    const delSnapshots = hasSnapshotStorage(db) ? db.prepare('DELETE FROM account_snapshots WHERE account_id=?') : null;
+    const delAccount = db.prepare('DELETE FROM accounts WHERE id=?');
+    for (const id of ids) {
+      delCommands.run(id);
+      delSnapshots?.run(id);
+      delAccount.run(id);
+    }
+    clearSnapshotCache(db);
+    return ids.length;
+  });
+}
+
 export function updateAccount(db, a, revision) {
   if (!db.isTransaction) throw Error('Обновление счёта требует транзакцию');
   const separated = hasSnapshotStorage(db);

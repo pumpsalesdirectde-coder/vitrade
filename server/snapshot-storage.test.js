@@ -4,7 +4,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {openDatabase,insertAccount,readAccount,listAccounts,mutateAccount,transaction,setValue} from './db.js';
+import {openDatabase,insertAccount,readAccount,listAccounts,mutateAccount,transaction,setValue,deleteAccount,deleteExchangeAccounts} from './db.js';
 import {newAccount,advance,createBot,command,DEFAULT_CONFIG} from './engine/engine.js';
 import {tickAccounts} from './runner.js';
 import {createForkTestAccounts} from '../scripts/create-fork-tests.js';
@@ -12,6 +12,55 @@ import {createForkTestAccounts} from '../scripts/create-fork-tests.js';
 const points=n=>Array.from({length:n},(_,i)=>({at:i*5000,equity:String(10000+i/10)}));
 const stored=(db,id)=>JSON.parse(db.prepare('SELECT state FROM accounts WHERE id=?').get(id).state);
 const thin=(xs,n=240)=>xs.length<=n?xs:Array.from({length:n},(_,i)=>xs[Math.floor(i*(xs.length/n))]).concat(xs.at(-1));
+
+test('delete paper account with open cycle removes bots, history and related rows only for its owner',()=>{
+  const db=openDatabase(':memory:');
+  try{
+    const a=newAccount('delete-me','owner','Bybit paper','market',0);
+    a.bots.push({id:'bot-open',currentCycleId:'cycle-open'});
+    a.cycles.push({id:'cycle-open',status:'OPEN'});
+    a.snapshots=points(3);
+    const other=newAccount('keep-me','other','Other','market',0);
+    insertAccount(db,a);insertAccount(db,other);
+    db.prepare('INSERT INTO commands VALUES(?,?,?)').run(a.id,'key',Date.now());
+    assert.throws(()=>deleteAccount(db,a.id,'other',a.name),/Счёт не найден/);
+    assert.throws(()=>deleteAccount(db,a.id,'owner','wrong'),/Название/);
+    assert.equal(readAccount(db,a.id).cycles[0].status,'OPEN');
+    deleteAccount(db,a.id,'owner',a.name);
+    assert.throws(()=>readAccount(db,a.id),/Счёт не найден/);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM commands WHERE account_id=?').get(a.id).n,0);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM account_snapshots WHERE account_id=?').get(a.id).n,0);
+    assert.equal(readAccount(db,other.id).name,'Other');
+  }finally{db.close();}
+});
+
+test('delete exchange removes all owner Bybit accounts including open bots, preserving other users and exchanges',()=>{
+  const db=openDatabase(':memory:');
+  try{
+    const first=newAccount('first','owner','First','market',0,'bybit');
+    const second=newAccount('second','owner','Second','market',0,'bybit');
+    const foreign=newAccount('foreign','other','Foreign','market',0,'bybit');
+    const otherExchange=newAccount('other-exchange','owner','Other exchange','market',0,'okx');
+    first.bots.push({id:'running-bot',currentCycleId:'running-cycle'});
+    first.cycles.push({id:'running-cycle',status:'OPEN'});
+    for(const a of [first,second,foreign,otherExchange]){
+      a.snapshots=points(3);
+      insertAccount(db,a);
+      db.prepare('INSERT INTO commands VALUES(?,?,?)').run(a.id,'key',Date.now());
+    }
+    assert.equal(deleteExchangeAccounts(db,'owner','bybit'),2);
+    for(const id of [first.id,second.id]){
+      assert.equal(db.prepare('SELECT COUNT(*) n FROM accounts WHERE id=?').get(id).n,0);
+      assert.equal(db.prepare('SELECT COUNT(*) n FROM commands WHERE account_id=?').get(id).n,0);
+      assert.equal(db.prepare('SELECT COUNT(*) n FROM account_snapshots WHERE account_id=?').get(id).n,0);
+    }
+    for(const id of [foreign.id,otherExchange.id]){
+      assert.equal(db.prepare('SELECT COUNT(*) n FROM accounts WHERE id=?').get(id).n,1);
+      assert.equal(db.prepare('SELECT COUNT(*) n FROM commands WHERE account_id=?').get(id).n,1);
+      assert.equal(readAccount(db,id).snapshots.length,3);
+    }
+  }finally{db.close();}
+});
 
 test('maintenance preview and apply support legacy databases without migrating them',()=>{
   const db=new DatabaseSync(':memory:');
