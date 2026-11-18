@@ -20,7 +20,7 @@ export const DEFAULT_CONFIG = {
   // на guardPct% и больше, бот перестаёт докупать и держит набранный объём
   guardOn: true, guardStep: 3, guardPct: "20", guardMinutes: 60,
   accelerationStopOn: false, accelerationStopPct: "10",
-  stages: { RSI_SHORT: false, RSI_LONG: false, PUMP: false, EARLY: false, FLIP: false, DUMP: false, DUMP_ACCEL: false, CRASH: false },
+  stages: { RSI_SHORT: false, RSI_LONG: false, PUMP: false, EARLY: false, FLIP: false, FLIP_RISK: false, DUMP: false, DUMP_ACCEL: false, CRASH: false },
 };
 
 export function newAccount(id, ownerId, name, source, now, exchange = "bybit", initial = "10000") {
@@ -172,10 +172,10 @@ function pickAuto(a, b, candidates, now) {
   const picks = [];
   for (const q of candidates) {
     if (a.cycles.some((c) => c.symbol === q.symbol && c.status !== "CLOSED")) continue;
-    const stageOk = a.source === "market" && q.stage && (s[q.stage] || (q.stage === "DUMP" && s.DUMP_ACCEL)) && now - (q.stageAt || 0) < 42e5
+    const stageOk = a.source === "market" && q.stage && (s[q.stage] || (q.stage === "FLIP" && s.FLIP_RISK) || (q.stage === "DUMP" && s.DUMP_ACCEL)) && now - (q.stageAt || 0) < 42e5
       && !a.cycles.some((c) => c.symbol === q.symbol && now - (c.closedAt || 0) < 864e5);
     if (stageOk) {
-      picks.push({ ...q, pickDir: stageDirection(q.stage), pickWhy: q.stage === "DUMP" && s.DUMP_ACCEL ? "DUMP_ACCEL" : q.stage });
+      picks.push({ ...q, pickDir: stageDirection(q.stage), pickWhy: q.stage === "FLIP" && s.FLIP_RISK ? "FLIP_RISK" : q.stage === "DUMP" && s.DUMP_ACCEL ? "DUMP_ACCEL" : q.stage });
     } else if (
       q.signal && s["RSI_" + q.signal] && (a.source === "scenario" || q.eligible === true)
       && (q.signalAt || 0) > Math.max(b.activatedAt, b.lastSignal[q.symbol] || 0)
