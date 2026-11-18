@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { advance, command, createBot, newAccount, summarize, validateConfig, DEFAULT_CONFIG } from "./engine.js";
 import { classifyStage } from "./signals.js";
+import { collectAcceleration } from "../market/bybit.js";
 
 const quote = (symbol, mark, now, extra = {}) => ({
   [symbol]: { symbol, mark: String(mark), bid: String(mark), ask: String(mark), at: now, source: "market", turnover: "1000000", ...extra },
@@ -14,6 +15,35 @@ function manualAccount(direction = "SHORT") {
   command(a, b.id, "start", {}, 0);
   return { a, b };
 }
+
+test("hourly 10% exit blacklists the coin and keeps the bot active", () => {
+  const a = newAccount("accel", "local", "Acceleration", "market", 0);
+  const cfg = { ...DEFAULT_CONFIG, mode: "manual", symbol: "XUSDT", budget: "500",
+    tpPct: "1.5", slPct: "200", marginCap: "1000", feeRate: "0.0005",
+    accelerationStopOn: true, accelerationStopPct: "10" };
+  const b = createBot(a, cfg, 0);
+  command(a, b.id, "start", {}, 0);
+  advance(a, quote("XUSDT", 100, 600000), 600000);
+  advance(a, quote("XUSDT", 104.5, 600001), 600001);
+  advance(a, quote("XUSDT", 109, 600002), 600002);
+  assert.equal(a.cycles[0].usedSteps, 3);
+  advance(a, quote("XUSDT", 115, 930000, { accelerationAt: 900000, accelerationGainPct: 10.1 }), 930000);
+  assert.equal(a.cycles[0].closeReason, "STOP_LOSS");
+  assert.equal(a.cycles[0].protectionTrigger, "ACCEL_1H_10PCT");
+  assert.deepEqual(a.stopBlacklist, ["XUSDT"]);
+  assert.equal(b.enabled, true);
+  advance(a, quote("XUSDT", 100, 900001), 900001);
+  assert.equal(a.cycles.length, 1);
+});
+
+test("hourly gain uses thirteen contiguous completed five-minute closes", async () => {
+  const at = 20 * 300000;
+  const rows = Array.from({ length: 14 }, (_, i) => [String((at / 300000 - 13 + i) * 300000), "0", "0", "0", String(i === 12 ? 110 : 100)]);
+  const fetcher = async () => ({ ok: true, json: async () => ({ retCode: 0, result: { list: rows } }) });
+  assert.equal((await collectAcceleration(fetcher, "XUSDT", at)).accelerationGainPct, 10.000000000000009);
+  rows.splice(5, 1);
+  assert.equal((await collectAcceleration(fetcher, "XUSDT", at)).accelerationGainPct, null);
+});
 
 test("ручной шорт: вход, докупка по сетке, тейк-профит", () => {
   const { a, b } = manualAccount("SHORT");
@@ -110,4 +140,18 @@ test("custom order percentages spend the configured share of grid budget", () =>
 
 test("new bot strategies start unchecked", () => {
   assert.ok(Object.values(DEFAULT_CONFIG.stages).every((value) => value === false));
+});
+
+test("researched eight-order grid uses the full budget at 12.5 percent per order", () => {
+  const a = newAccount("eight", "local", "Eight orders", "market", 0);
+  const b = createBot(a, { ...DEFAULT_CONFIG, mode: "manual", symbol: "XUSDT", budget: "500", leverage: 5,
+    steps: 7, entryPct: "12.5", orderPcts: Array(8).fill("12.5"), spacingPct: "4.5",
+    tpPct: "1.5", slPct: "200", marginAuto: true, marginCap: "1000", guardOn: false,
+    feeRate: "0.0005", slippageRate: "0", accelerationStopOn: true }, 0);
+  command(a, b.id, "start", {}, 0);
+  advance(a, quote("XUSDT", 100, 1000), 1000);
+  for (let i = 1; i <= 7; i++) advance(a, quote("XUSDT", 100 + 4.5 * i, 1000 + i * 1000), 1000 + i * 1000);
+  assert.equal(a.cycles[0].usedSteps, 8);
+  assert.equal(a.cycles[0].remainingBudget, "0");
+  assert.equal(a.fills.filter((f) => f.action === "increase").length, 8);
 });

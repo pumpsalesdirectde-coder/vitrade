@@ -40,8 +40,9 @@ const pickConfig = (c) => ({
   steps: Number(c.steps), spacingPct: String(c.spacingPct), entryPct: String(c.entryPct ?? "4.5"),
   orderPcts: [...(c.orderPcts ?? Array(8).fill("4.5"))].map(String), tpPct: String(c.tpPct), slPct: String(c.slPct),
   feeRate: String(c.feeRate), slippageRate: String(c.slippageRate), marginAuto: !!c.marginAuto, marginCap: String(c.marginCap),
-  exclusions: c.exclusions || [], stages: { ...c.stages },
+  exclusions: c.exclusions || [], stages: { ...c.stages }, fork: c.fork,
   guardOn: c.guardOn === true, guardStep: Number(c.guardStep ?? 3), guardPct: String(c.guardPct ?? "20"), guardMinutes: Number(c.guardMinutes ?? 60),
+  accelerationStopOn: c.accelerationStopOn === true, accelerationStopPct: String(c.accelerationStopPct ?? "10"),
 });
 
 export default function BotForm({ account: a, state, botId, refresh }) {
@@ -56,6 +57,16 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   }, []);
   const set = (k) => (e) => setCfg({ ...cfg, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.type === "number" ? Number(e.target.value) : e.target.value });
   const setOrderPct = (index) => (e) => setCfg((prev) => ({ ...prev, orderPcts: prev.orderPcts.map((v, i) => i === index ? e.target.value : v) }));
+  const applyDump10Preset = () => setCfg((prev) => ({
+    ...prev, name: "DUMP SHORT — выход 10% за час", mode: "auto", direction: "SHORT",
+    budget: "500", leverage: 5, steps: 7, spacingPct: "4.5", entryPct: "12.5",
+    orderPcts: Array(8).fill("12.5"), tpPct: "1.5", slPct: "200",
+    feeRate: "0.0005", slippageRate: "0.0002", marginAuto: true, marginCap: "1000",
+    guardOn: true, guardStep: 3, guardPct: "20", guardMinutes: 60,
+    accelerationStopOn: true, accelerationStopPct: "10",
+    fork: { ...prev.fork, enabled: false },
+    stages: Object.fromEntries(Object.keys(prev.stages).map((key) => [key, key === "DUMP"])),
+  }));
   const manual = cfg.mode === "manual";
   const mark = Number(quotes.find((q) => q.symbol === cfg.symbol)?.mark || 0);
   const entry = manual && mark ? mark : 100;
@@ -82,7 +93,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   const submit = async (start) => {
     setBusy(true);
     try {
-      const config = { ...cfg, fork: editing?.config.fork ?? state.defaults.fork, exclusions: excl.split(/[\s,;]+/).filter(Boolean).map((s) => s.toUpperCase().replace(/USDT$/, "") + "USDT") };
+      const config = { ...cfg, fork: cfg.fork ?? editing?.config.fork ?? state.defaults.fork, exclusions: excl.split(/[\s,;]+/).filter(Boolean).map((s) => s.toUpperCase().replace(/USDT$/, "") + "USDT") };
       if (editing) await post(`/api/accounts/${a.id}/bots/${editing.id}/commands`, { action: "update", payload: config });
       else await post(`/api/accounts/${a.id}/bots`, { config, start });
       refresh();
@@ -99,6 +110,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   return (
     <div className="form-page">
       <form className="bot-form" onSubmit={(e) => { e.preventDefault(); submit(true); }}>
+        <button type="button" className="btn" onClick={applyDump10Preset}>Применить настройки DUMP SHORT — выход 10% за час</button>
         <header className="block-head">
           <h2>{editing ? `Настройки «${editing.config.name}»` : "Новый бот"}</h2>
           <p className="muted">Счёт «{a.name}» · бумажная торговля по ценам Bybit{busyBot ? " · у бота открыта сделка: новые параметры применятся со следующей" : ""}</p>
@@ -141,9 +153,9 @@ export default function BotForm({ account: a, state, botId, refresh }) {
             <label>Название<input value={cfg.name} onChange={set("name")} maxLength={64} required /></label>
             <label><Hint term="budget">Бюджет сетки, $</Hint><input className="num" inputMode="decimal" value={cfg.budget} onChange={set("budget")} /><small className="muted">делится поровну на все шаги</small></label>
             <label><Hint term="leverage">Плечо</Hint><input type="number" min={state.limits.leverage[0]} max={state.limits.leverage[1]} value={cfg.leverage} onChange={set("leverage")} /></label>
-            <label><Hint term="steps">Шагов сетки</Hint><input type="number" min={state.limits.steps[0]} max={state.limits.steps[1]} value={cfg.steps} onChange={set("steps")} /></label>
+            <label><Hint term="steps">Докупок сетки</Hint><input type="number" min={state.limits.steps[0]} max={state.limits.steps[1]} value={cfg.steps} onChange={set("steps")} /></label>
             <label>Первый вход, % бюджета сетки<input className="num" inputMode="decimal" value={cfg.entryPct} onChange={set("entryPct")} /><small className="muted">{money(Number(cfg.budget) * Number(cfg.entryPct) / 100)} маржи</small></label>
-            <div className="order-pcts"><b>Восемь докупок, % бюджета сетки</b><div className="fields four">{cfg.orderPcts.map((value, index) => <label key={index}>Докупка {index + 1}<input className="num" inputMode="decimal" value={value} onChange={setOrderPct(index)} /><small className="muted">{money(Number(cfg.budget) * Number(value) / 100)} маржи</small></label>)}</div><small className="muted">Первый вход и активные докупки вместе не должны превышать 100% бюджета.</small></div>
+            <div className="order-pcts"><b>Докупки, % бюджета сетки</b><div className="fields four">{cfg.orderPcts.slice(0, cfg.steps).map((value, index) => <label key={index}>Докупка {index + 1}<input className="num" inputMode="decimal" value={value} onChange={setOrderPct(index)} /><small className="muted">{money(Number(cfg.budget) * Number(value) / 100)} маржи</small></label>)}</div><small className="muted">Первый вход и активные докупки вместе не должны превышать 100% бюджета.</small></div>
             <label><Hint term="tp">Тейк-профит, % бюджета</Hint><input className="num" inputMode="decimal" value={cfg.tpPct} onChange={set("tpPct")} /><small className="muted">{money((Number(cfg.budget) * Number(cfg.tpPct)) / 100)} чистыми</small></label>
             <label><Hint term="sl">Стоп-лосс, % бюджета</Hint><input className="num" inputMode="decimal" value={cfg.slPct} onChange={set("slPct")} /><small className="muted">−{money((Number(cfg.budget) * Number(cfg.slPct)) / 100)}</small></label>
           </div>
@@ -164,6 +176,9 @@ export default function BotForm({ account: a, state, botId, refresh }) {
               <label>За время, мин<input type="number" min={5} max={240} value={cfg.guardMinutes} onChange={set("guardMinutes")} /><small className="muted">окно наблюдения, 5–240 мин</small></label>
             </div>
           )}
+          <label className="check big-check"><input type="checkbox" checked={cfg.accelerationStopOn} onChange={set("accelerationStopOn")} />
+            <span>Защитный выход SHORT: рост монеты за завершённый час, минимум три шага сетки и убыточное закрытие. После стопа монета исключается для всех ботов этого счёта; бот продолжает работу.</span></label>
+          {cfg.accelerationStopOn && <label>Рост за час, %<input className="num" inputMode="decimal" value={cfg.accelerationStopPct} onChange={set("accelerationStopPct")} /></label>}
           {!manual && <label>Не торговать монеты<input value={excl} onChange={(e) => setExcl(e.target.value)} placeholder="Например: JCT, ARIA" /></label>}
         </fieldset>
 

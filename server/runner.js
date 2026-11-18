@@ -3,7 +3,7 @@ import { setImmediate as yieldToIO } from "node:timers/promises";
 import { getValue, setValue, transaction, updateAccount, listAccounts } from "./db.js";
 import { advance, applyFunding } from "./engine/engine.js";
 import { bill, blockedUsers } from "./wallet.js";
-import { collectFunding, collectMarket, collectSignal, collectStage } from "./market/bybit.js";
+import { collectAcceleration, collectFunding, collectMarket, collectSignal, collectStage } from "./market/bybit.js";
 
 /** Фиксирует прошедшие моменты расчёта фандинга по монетам, чтобы потом подтянуть ставку. */
 function recordSettlements(db, now, observations = []) {
@@ -117,6 +117,11 @@ export async function refreshMarket(db, fetcher, now = Date.now()) {
     for (let i = 0; i < list.length; i += 5) await Promise.all(list.slice(i, i + 5).map((s) => fn(s).catch(() => {})));
   };
   const five = Math.floor(now / 3e5) * 3e5;
+  const protectedHeld = [...new Set(accounts.flatMap((a) => a.cycles
+    .filter((c) => c.status === "OPEN" && c.direction === "SHORT" && c.config.accelerationStopOn)
+    .map((c) => c.symbol)))];
+  await batch(protectedHeld.filter((s) => current.quotes?.[s] && current.quotes[s].accelerationAt !== five),
+    async (s) => merge(s, await collectAcceleration(fetcher, s, now)));
   await batch((current.universe || []).filter((s) => (current.quotes?.[s]?.signalAt || 0) < five),
     async (s) => merge(s, await collectSignal(fetcher, s, now)));
   const hour = Math.floor(now / 36e5) * 36e5;

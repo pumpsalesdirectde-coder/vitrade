@@ -19,6 +19,7 @@ export const DEFAULT_CONFIG = {
   // подстраховка: после шага guardStep, если цена за guardMinutes после последней докупки ушла против позиции
   // на guardPct% и больше, бот перестаёт докупать и держит набранный объём
   guardOn: true, guardStep: 3, guardPct: "20", guardMinutes: 60,
+  accelerationStopOn: false, accelerationStopPct: "10",
   stages: { RSI_SHORT: false, RSI_LONG: false, PUMP: false, EARLY: false, FLIP: false, DUMP: false, CRASH: false },
 };
 
@@ -28,7 +29,7 @@ export function newAccount(id, ownerId, name, source, now, exchange = "bybit", i
     bots: [], cycles: [], fills: [],
     events: [{ id: randomUUID(), at: now, type: "CAPITAL", message: "Начальный виртуальный капитал", amount: initial }],
     fundingIds: [], fundingGaps: [], snapshots: [{ at: now, equity: initial }], peakEquity: initial, maxDrawdown: "0",
-    scenarioStep: 0,
+    scenarioStep: 0, stopBlacklist: [],
   };
 }
 
@@ -97,7 +98,11 @@ function reduce(a, b, c, q, percent, reason, now) {
     c.remainingBudget = "0";
     b.currentCycleId = null;
     b.pending = [];
-    if (b.finish || reason === "LIQUIDATION" || reason === "STOP_LOSS") b.enabled = false;
+    if (reason === "STOP_LOSS" && c.config.accelerationStopOn) {
+      a.stopBlacklist ||= [];
+      if (!a.stopBlacklist.includes(c.symbol)) a.stopBlacklist.push(c.symbol);
+    }
+    if (b.finish || reason === "LIQUIDATION" || (reason === "STOP_LOSS" && !c.config.accelerationStopOn)) b.enabled = false;
     b.lastReason = "Сделка завершена";
   }
   return true;
@@ -202,6 +207,7 @@ export function advance(a, quotes, now) {
       }
       const candidates = Object.values(quotes).filter((q) =>
         fresh(q, a, now) && !b.config.exclusions.includes(q.symbol)
+        && !(a.stopBlacklist || []).includes(q.symbol)
         && !a.cycles.some((x) => x.status !== "CLOSED" && x.symbol === q.symbol && x.direction === b.config.direction));
       const q2 = b.config.mode === "manual"
         ? candidates.find((q) => q.symbol === b.config.symbol)
@@ -229,6 +235,17 @@ export function advance(a, quotes, now) {
       if (net.lte(budget.times(c.config.slPct).div(-100))) {
         c.status = "CLOSING";
         c.closeReason = "STOP_LOSS";
+        b.pending = [];
+      } else if (c.config.accelerationStopOn && c.direction === "SHORT" && c.usedSteps >= 3
+        && q.accelerationAt === Math.floor(now / 3e5) * 3e5
+        && now - q.accelerationAt < 6e4
+        && Number(q.accelerationGainPct) >= Number(c.config.accelerationStopPct)
+        && unrealized(c, q.mark).lt(0) && net.lt(0)) {
+        c.status = "CLOSING";
+        c.closeReason = "STOP_LOSS";
+        c.protectionTrigger = `ACCEL_1H_${c.config.accelerationStopPct}PCT`;
+        c.protectionHourGainPct = q.accelerationGainPct;
+        c.protectionObservedAt = q.accelerationAt;
         b.pending = [];
       } else if (!a.fundingGaps.length && executionPrice(c, q, false) !== null && net.gte(budget.times(c.config.tpPct).div(100))) {
         c.status = "CLOSING";
@@ -364,6 +381,15 @@ export function validateConfig(input) {
   c.guardStep = c.guardStep === undefined ? 3 : c.guardStep;
   c.guardPct = c.guardPct === undefined ? "20" : c.guardPct;
   c.guardMinutes = c.guardMinutes === undefined ? 60 : c.guardMinutes;
+  c.accelerationStopOn = c.accelerationStopOn === true;
+  c.accelerationStopPct = c.accelerationStopPct === undefined ? "10" : c.accelerationStopPct;
+  try {
+    const pct = D(c.accelerationStopPct);
+    if (!pct.isFinite() || pct.lte(0) || pct.gt(100)) throw Error();
+    c.accelerationStopPct = str(pct);
+  } catch {
+    throw Error("Ускорение: допустимый рост за час от 0 до 100%");
+  }
   if (!Number.isInteger(c.guardStep) || c.guardStep < 1 || c.guardStep > s1 || !Number.isInteger(c.guardMinutes) || c.guardMinutes < 5 || c.guardMinutes > 240) {
     throw Error("Подстраховка: шаг 1–8, окно 5–240 минут");
   }

@@ -60,6 +60,7 @@ export async function collectMarket(fetcher, now, cache = {}, held = []) {
       intervalHours: Number(allowed.get(q.symbol)?.fundingInterval || 480) / 60, eligible: universe.includes(q.symbol),
       rsi: old?.rsi, signal: old?.signal, signalAt: old?.signalAt, stage: old?.stage, stageAt: old?.stageAt,
       stagePump: old?.stagePump, stageDrop: old?.stageDrop, stageCheckedAt: old?.stageCheckedAt,
+      accelerationAt: old?.accelerationAt, accelerationGainPct: old?.accelerationGainPct,
     };
   }
   return { quotes, instruments, universe, universeAt, stageWatch };
@@ -86,6 +87,17 @@ export async function collectSignal(fetcher, symbol, now) {
   if (now - end > 6e5) throw Error("Устаревшие свечи RSI");
   const prices = closed.map((r) => Number(r[4]));
   return { rsi: rsi(prices) ?? undefined, signal: rsiSignal(prices), signalAt: end };
+}
+
+/** Compare closes of completed 5m bars exactly one hour apart. */
+export async function collectAcceleration(fetcher, symbol, now) {
+  const at = Math.floor(now / 3e5) * 3e5;
+  const data = await json(fetcher, `/v5/market/kline?category=linear&symbol=${encodeURIComponent(symbol)}&interval=5&limit=15`);
+  const bars = new Map(data.result.list.map((r) => [Number(r[0]), Number(r[4])]));
+  for (let t = at - 13 * 3e5; t <= at - 3e5; t += 3e5) {
+    if (!Number.isFinite(bars.get(t)) || bars.get(t) <= 0) return { accelerationAt: at, accelerationGainPct: null };
+  }
+  return { accelerationAt: at, accelerationGainPct: 100 * (bars.get(at - 3e5) / bars.get(at - 13 * 3e5) - 1) };
 }
 
 /** Ставка фандинга и mark price на момент расчёта. */
