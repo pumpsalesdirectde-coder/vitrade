@@ -53,7 +53,7 @@ export async function collectMarket(fetcher, now, cache = {}, held = []) {
   for (const q of valid.filter((x) => universe.includes(x.symbol) || held.includes(x.symbol) || stageWatch.includes(x.symbol))) {
     const old = cache.quotes?.[q.symbol];
     quotes[q.symbol] = {
-      symbol: q.symbol, mark: q.markPrice, bid: q.bid1Price || "", ask: q.ask1Price || "", at, source: "market",
+      symbol: q.symbol, mark: q.markPrice, last: q.lastPrice, bid: q.bid1Price || "", ask: q.ask1Price || "", at, source: "market",
       exchange: "bybit", turnover: positive(q.turnover24h) ? q.turnover24h : "0",
       change: String(Number(q.price24hPcnt || 0) * 100), high24: q.highPrice24h, low24: q.lowPrice24h,
       fundingRate: q.fundingRate, nextFundingAt: Number(q.nextFundingTime) > 0 ? Number(q.nextFundingTime) : old?.nextFundingAt,

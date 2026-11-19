@@ -12,6 +12,36 @@ function fixture() {
 }
 const revisions=db=>db.prepare('SELECT revision FROM accounts ORDER BY position').all().map(r=>r.revision);
 
+test('Range PAPER positions keep quotes outside the screener and request a carried funding event', async () => {
+  const db = openDatabase(':memory:');
+  const fundingAt = Date.UTC(2026, 0, 1, 8);
+  const now = fundingAt + 2_000;
+  const symbol = 'RANGEUSDT';
+  setValue(db, 'market:cache', { instruments: [{ symbol, fundingInterval: 480 }], universe: [], universeAt: now });
+  setValue(db, 'market:schedules', { [symbol]: { next: fundingAt, interval: 28_800_000 } });
+  const fetcher = async input => {
+    const { pathname } = new URL(input);
+    const response = {
+      '/v5/market/tickers': [{
+        symbol, markPrice: '100.01', lastPrice: '100.02', bid1Price: '100', ask1Price: '100.03',
+        turnover24h: '5000000', nextFundingTime: String(fundingAt + 28_800_000), price24hPcnt: '0',
+      }],
+      '/v5/market/funding/history': [{ fundingRateTimestamp: String(fundingAt), fundingRate: '0.0001' }],
+      '/v5/market/mark-price-kline': [[String(fundingAt), '100']],
+    };
+    assert.ok(Object.hasOwn(response, pathname), pathname);
+    return { ok: true, json: async () => ({ retCode: 0, time: String(now), result: { list: response[pathname] } }) };
+  };
+  try {
+    await runner.refreshMarket(db, fetcher, now, () => [{ symbol, openedAt: fundingAt - 30_000, closedAt: null }]);
+    assert.equal(getValue(db, 'market:quotes', {})[symbol].last, '100.02');
+    assert.equal(getValue(db, 'market:funding', [])[0].id, `${symbol}:${fundingAt}`);
+    assert.deepEqual(db.prepare('SELECT id FROM accounts').all(), []);
+  } finally {
+    db.close();
+  }
+});
+
 test('runner leaves the event loop available while processing accounts', async()=>{
   const db=fixture();
   const stop=runner.startRunner(db,()=>{throw Error('offline');},{offline:true});

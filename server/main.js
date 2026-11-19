@@ -10,6 +10,7 @@ import { createApi } from "./http.js";
 import { guardedFetch } from "./net.js";
 import { migrateAuth } from "./auth.js";
 import { migrateWallet } from "./wallet.js";
+import { createRangePaperService } from "./range-paper/service.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const env = process.env;
@@ -21,9 +22,12 @@ mkdirSync(dirname(dbPath), { recursive: true });
 const db = openDatabase(dbPath);
 migrateAuth(db);
 migrateWallet(db);
-const stop = startRunner(db, guardedFetch, { offline: env.VITRADE_OFFLINE === "1" });
+const offline = env.VITRADE_OFFLINE === "1";
+const rangePaper = createRangePaperService(db, { fetcher: guardedFetch, offline });
+const stopPaper = rangePaper.start();
+const stop = startRunner(db, guardedFetch, { offline, paperCycles: rangePaper.cycles });
 const server = createApi({
-  db, fetcher: guardedFetch, webRoot: resolve(root, "web", "dist"), port,
+  db, fetcher: guardedFetch, webRoot: resolve(root, "web", "dist"), port, rangePaper,
   publicUrl: (env.VITRADE_PUBLIC_URL || env.RENDER_EXTERNAL_URL || "").replace(/\/$/, ""),
   trustProxy: env.VITRADE_TRUST_PROXY === "1" || !!env.RENDER,
   maxUsers: Number(env.VITRADE_MAX_USERS || 0),
@@ -32,6 +36,7 @@ const server = createApi({
 server.listen(port, host, () => console.log(`MIVTrade: http://${host}:${port}`));
 
 function shutdown() {
+  stopPaper();
   stop();
   server.close();
   setTimeout(() => {

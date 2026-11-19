@@ -62,7 +62,7 @@ const cookies = (req) => Object.fromEntries((req.headers.cookie || "").split(/;\
   const i = p.indexOf("=");
   return [p.slice(0, i), decodeURIComponent(p.slice(i + 1))];
 }));
-export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustProxy = false, maxUsers = 0 }) {
+export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustProxy = false, maxUsers = 0, rangePaper }) {
   auth.migrateAuth(db);
   wallet.migrateWallet(db);
   const secure = publicUrl.startsWith("https://");
@@ -85,6 +85,10 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
   const routes = [
     ["GET", /^\/api\/health$/, () => ({ ok: true, uptime: Math.round((Date.now() - startedAt) / 1000), market: getValue(db, "market:health", {}).status || "starting" }), false],
     ["GET", /^\/api\/session$/, (ctx) => ({ user: auth.publicUser(ctx.user), firstRun: auth.userCount(db) === 0 }), false],
+    ...(rangePaper ? [
+      ["GET", /^\/api\/range-paper$/, (ctx) => rangePaper.read(ctx.user.id)],
+      ["POST", /^\/api\/range-paper$/, async (ctx) => rangePaper.configure(ctx.user.id, await body(ctx.req))],
+    ] : []),
     ["POST", /^\/api\/auth\/register$/, async (ctx) => {
       const p = await body(ctx.req);
       const now = Date.now();

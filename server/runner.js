@@ -103,10 +103,14 @@ export async function tickAccountsCooperatively(db, clock = Date.now, isStopped 
   for (const _ of accountSteps(db, clock, isStopped)) await yieldToIO();
 }
 
-export async function refreshMarket(db, fetcher, now = Date.now()) {
+export async function refreshMarket(db, fetcher, now = Date.now(), paperCycles = () => []) {
   const cache = getValue(db, "market:cache", {});
   const accounts = listAccounts(db, {snapshots: false});
-  const held = [...new Set(accounts.flatMap((a) => a.cycles.filter((c) => c.status !== "CLOSED").map((c) => c.symbol)))];
+  const paper = paperCycles();
+  const held = [...new Set([
+    ...accounts.flatMap((a) => a.cycles.filter((c) => c.status !== "CLOSED").map((c) => c.symbol)),
+    ...paper.filter((c) => c.closedAt === null).map((c) => c.symbol),
+  ])];
   const funding = getValue(db, "market:funding", []);
   try {
     const result = await collectMarket(fetcher, now, cache, held);
@@ -142,7 +146,8 @@ export async function refreshMarket(db, fetcher, now = Date.now()) {
     async (s) => merge(s, await collectStage(fetcher, s, now)));
   if (current.quotes) setValue(db, "market:cache", current);
   const due = getValue(db, "market:fundingDue", []);
-  for (const f of pendingFunding(due, funding, accounts)) {
+  const latestPaper = paperCycles();
+  for (const f of pendingFunding(due, funding, latestPaper.length ? [...accounts, { cycles: latestPaper }] : accounts)) {
     try {
       funding.push(await collectFunding(fetcher, f.symbol, f.at));
       setValue(db, "market:funding", funding.filter((x) => now - x.at < 7 * 864e5));
@@ -152,7 +157,7 @@ export async function refreshMarket(db, fetcher, now = Date.now()) {
   }
 }
 
-export function startRunner(db, fetcher, { offline = false } = {}) {
+export function startRunner(db, fetcher, { offline = false, paperCycles } = {}) {
   let collecting = false;
   let billedAt = 0;
   let stopped = false;
@@ -184,7 +189,7 @@ export function startRunner(db, fetcher, { offline = false } = {}) {
     }
     collecting = true;
     try {
-      await refreshMarket(db, fetcher);
+      await refreshMarket(db, fetcher, Date.now(), paperCycles);
     } finally {
       collecting = false;
     }

@@ -7,6 +7,7 @@ import Auth from "./pages/Auth.jsx";
 import Overview from "./pages/Overview.jsx";
 import Bots from "./pages/Bots.jsx";
 import Fork from "./pages/Fork.jsx";
+import RangePaper from "./pages/RangePaper.jsx";
 import Trades from "./pages/Trades.jsx";
 import BotForm from "./pages/BotForm.jsx";
 import Screener from "./pages/Screener.jsx";
@@ -22,7 +23,7 @@ import AccountSwitch from "./ui/AccountSwitch.jsx";
 import AllAccounts from "./pages/AllAccounts.jsx";
 
 const MENU = [
-  ["Торговля", [["overview", "Обзор"], ["screener", "Чекер"], ["bots", "Боты"], ["fork", "Вилка"], ["river-simulator", "Симулятор RIVER"], ["trades", "Сделки"], ["stats", "Статистика"]]],
+  ["Торговля", [["overview", "Обзор"], ["screener", "Чекер"], ["bots", "Боты"], ["fork", "Вилка"], ["range-paper", "Проторговка V2"], ["river-simulator", "Симулятор RIVER"], ["trades", "Сделки"], ["stats", "Статистика"]]],
   ["Счета", [["exchanges", "Биржи и счета"]]],
   ["Финансы", [["wallet", "Кошелёк"], ["referrals", "Рефералы"]]],
   ["Аккаунт", [["profile", "Профиль и настройки"], ["security", "Безопасность"]]],
@@ -112,7 +113,8 @@ export default function App() {
   const showAll = all && (ALL_PAGES.has(page) || !TITLES[page]);
 
   let content;
-  if (!state) content = <p className="muted">Загрузка…</p>;
+  if (page === "range-paper") content = <RangePaper key={user.id} />;
+  else if (!state) content = <p className="muted">Загрузка…</p>;
   else if (needsAccount && !account) {
     content = (
       <div className="empty-state">
@@ -152,7 +154,7 @@ export default function App() {
               <span className="nav-label">{group}</span>
               {items.map(([id, label]) => (
                 <a key={id} href={id === "river-simulator" ? "/river-simulator.html" : `#/${id}`} aria-current={current === id ? "page" : undefined}>
-                  <Icon name={id === "river-simulator" ? "stats" : id} />{label}
+                  <Icon name={id === "river-simulator" || id === "range-paper" ? "stats" : id} />{label}
                   {id === "wallet" && state?.wallet && <span className={`nav-badge ${state.wallet.balance < 0 ? "down" : ""}`}>{money(state.wallet.balance)}</span>}
                   {id === "referrals" && state?.wallet && <span className="nav-badge count">{state.wallet.referrals ?? 0}</span>}
                 </a>
@@ -181,8 +183,8 @@ export default function App() {
             <Hint term="paper"><span className="paper">Paper</span></Hint>
           </div>
         </header>
-        {error && <div className="banner">{error}</div>}
-        {state?.wallet?.balance < 0 && <div className="banner">Баланс кошелька отрицательный ({money(state.wallet.balance)}): боты не открывают новые сделки. <a href="#/wallet">Пополнить кошелёк</a></div>}
+        {page !== "range-paper" && error && <div className="banner">{error}</div>}
+        {page !== "range-paper" && state?.wallet?.balance < 0 && <div className="banner">Баланс кошелька отрицательный ({money(state.wallet.balance)}): боты не открывают новые сделки. <a href="#/wallet">Пополнить кошелёк</a></div>}
         {needsAccount && !showAll && account?.reserveShortfall && <div className="banner">На счёте не хватает свободных средств под бюджеты ботов — новые сделки и докупки остановлены.</div>}
         <main>{content}</main>
         {needsAccount && !showAll && account && <footer className="foot">Капитал счёта «{account.name}»: <b>{money(account.equity)}</b></footer>}
