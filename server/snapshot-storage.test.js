@@ -67,7 +67,7 @@ test('maintenance preview and apply support legacy databases without migrating t
   try{
     db.exec('CREATE TABLE accounts(id TEXT PRIMARY KEY, position INTEGER NOT NULL, state TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)');
     const a=newAccount('legacy','owner','Source','market',0);a.snapshots=points(500);
-    const b=createBot(a,DEFAULT_CONFIG,0);command(a,b.id,'start',{},0);
+    const b=createBot(a,{...DEFAULT_CONFIG,stages:{RSI_SHORT:true}},0);command(a,b.id,'start',{},0);
     db.prepare('INSERT INTO accounts VALUES(?,?,?,0)').run(a.id,1,JSON.stringify(a));
     const opts={ownerId:'owner',sourceIds:[a.id]};
     const before=db.prepare('SELECT state FROM accounts').get().state;

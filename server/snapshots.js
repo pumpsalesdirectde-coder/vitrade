@@ -2,6 +2,7 @@
 // All writes run in the same SQLite transaction as the corresponding account update.
 const MAX_POINTS = 17280;
 const CHART_POINTS = 240;
+const MAX_CACHED_ACCOUNTS = 32;
 const charts = new WeakMap();
 const samePoint = (a, b) => a?.at === b?.at && a?.equity === b?.equity;
 const plain = rows => rows.map(({at, equity}) => ({at, equity}));
@@ -40,21 +41,30 @@ export function appendSnapshots(db, id, points) {
 export function readSnapshots(db, id, mode = true) {
   if (mode !== 'chart') return plain(db.prepare('SELECT at,equity FROM account_snapshots WHERE account_id=? ORDER BY seq').all(id));
   const last = db.prepare('SELECT seq FROM account_snapshots WHERE account_id=? ORDER BY seq DESC LIMIT 1').get(id)?.seq;
-  if (last === undefined) return [];
   let cache = charts.get(db);
   if (!cache) charts.set(db, cache = new Map());
+  if (last === undefined) { cache.delete(id); return []; }
   const hit = cache.get(id);
+  if (hit) { cache.delete(id); cache.set(id, hit); }
   if (hit?.last === last) return plain(hit.points);
-  const n = db.prepare('SELECT COUNT(*) n FROM account_snapshots WHERE account_id=?').get(id).n;
+  // A new equity point must not trigger a window-function scan of the entire history.
+  // Retain only the on-disk window and fetch newly appended rows by the existing index.
+  const first = db.prepare('SELECT seq FROM account_snapshots WHERE account_id=? ORDER BY seq LIMIT 1').get(id).seq;
+  const incremental = hit && hit.last >= first && hit.last < last;
+  const added = db.prepare('SELECT seq FROM account_snapshots WHERE account_id=? AND seq>? ORDER BY seq')
+    .all(id, incremental ? hit.last : 0).map(p => p.seq);
+  // Numeric IDs are much smaller than retaining SQLite row objects for every point.
+  const seqs = incremental ? hit.seqs.filter(seq => seq >= first).concat(added) : added;
+  const n = seqs.length;
   // Preserve the original JavaScript floating-point operation order as well as endpoints.
   const step = n / CHART_POINTS;
   const indices = n <= CHART_POINTS ? Array.from({length:n}, (_,i)=>i)
     : Array.from({length:CHART_POINTS}, (_,i)=>Math.floor(i*step)).concat(n-1);
-  const points = plain(db.prepare(`WITH ranked AS (
-    SELECT at,equity,ROW_NUMBER() OVER (ORDER BY seq)-1 AS i FROM account_snapshots WHERE account_id=?
-  ) SELECT at,equity FROM ranked WHERE i IN (${indices.map(()=>'?').join(',')}) ORDER BY i`)
-    .all(id, ...indices));
-  cache.set(id, {last, points});
+  const sampled = indices.map(i => seqs[i]);
+  const points = plain(db.prepare(`SELECT at,equity FROM account_snapshots WHERE seq IN (${sampled.map(()=>'?').join(',')}) ORDER BY seq`)
+    .all(...sampled));
+  cache.set(id, {last, seqs, points});
+  while (cache.size > MAX_CACHED_ACCOUNTS) cache.delete(cache.keys().next().value);
   return plain(points);
 }
 

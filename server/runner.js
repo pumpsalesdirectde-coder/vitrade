@@ -35,6 +35,19 @@ function recordSettlements(db, now, observations = []) {
 const holds = (a, symbol, at) =>
   a.cycles.some((c) => c.symbol === symbol && c.openedAt < at && (c.closedAt === null || c.closedAt >= at));
 
+/** Index once: most due settlements belong to symbols never held by any account. */
+export function pendingFunding(due, funding, accounts) {
+  const known = new Set(funding.map(f => `${f.symbol}:${f.at}`));
+  const bySymbol = new Map();
+  for (const a of accounts) for (const c of a.cycles) {
+    let cycles = bySymbol.get(c.symbol);
+    if (!cycles) bySymbol.set(c.symbol, cycles = []);
+    cycles.push(c);
+  }
+  return due.filter(f => !known.has(`${f.symbol}:${f.at}`)
+    && bySymbol.get(f.symbol)?.some(c => c.openedAt < f.at && (c.closedAt === null || c.closedAt >= f.at)));
+}
+
 function accountContext(db, now) {
   const quotes = getValue(db, "market:quotes", {});
   const due = recordSettlements(db, now, Object.values(quotes));
@@ -129,7 +142,7 @@ export async function refreshMarket(db, fetcher, now = Date.now()) {
     async (s) => merge(s, await collectStage(fetcher, s, now)));
   if (current.quotes) setValue(db, "market:cache", current);
   const due = getValue(db, "market:fundingDue", []);
-  for (const f of due.filter((x) => !funding.some((y) => y.symbol === x.symbol && y.at === x.at) && accounts.some((a) => holds(a, x.symbol, x.at)))) {
+  for (const f of pendingFunding(due, funding, accounts)) {
     try {
       funding.push(await collectFunding(fetcher, f.symbol, f.at));
       setValue(db, "market:funding", funding.filter((x) => now - x.at < 7 * 864e5));

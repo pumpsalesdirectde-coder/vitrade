@@ -99,7 +99,7 @@ for(const action of ['start','close'])test(`a ${action} command between accounts
   const db=openDatabase(':memory:');
   insertAccount(db,newAccount('a0','owner','First','market',0));
   const a=newAccount('a1','owner','Second','market',0);
-  const b=createBot(a,{...DEFAULT_CONFIG,mode:'manual',symbol:'XUSDT',direction:'SHORT',budget:'800',steps:8,slippageRate:'0',fork:{enabled:false}},0);
+  const b=createBot(a,{...DEFAULT_CONFIG,mode:'manual',symbol:'XUSDT',direction:'SHORT',budget:'800',steps:8,orderPcts:undefined,slippageRate:'0',fork:{enabled:false}},0);
   const q={symbol:'XUSDT',mark:'100',bid:'100',ask:'100',at:10000,source:'market',nextFundingAt:10500,intervalHours:8};
   if(action==='close'){command(a,b.id,'start',{},1000);advance(a,{XUSDT:{...q,at:1000}},1000);}
   insertAccount(db,a);setValue(db,'market:quotes',{XUSDT:q});

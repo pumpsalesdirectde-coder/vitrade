@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { randomUUID } from "node:crypto";
+import { setImmediate as yieldToIO } from 'node:timers/promises';
 import { deleteAccount, deleteExchangeAccounts, getValue, insertAccount, listAccounts, mutateAccount, readAccount, transaction } from "./db.js";
 import { DEFAULT_CONFIG, LIMITS, command, createBot, newAccount, summarize } from "./engine/engine.js";
 import { D, positive } from "./engine/accounting.js";
@@ -21,6 +22,24 @@ function publicAccount(a, quotes) {
   // служебная история цен подстраховки интерфейсу не нужна
   const strip = ({ marks, forkMarks, ...c }) => c;
   return { ...rest, cycles: rest.cycles.map(strip), positions: rest.positions.map(strip), snapshots: s.snapshots, events: s.events.slice(-150).reverse(), fillCount: fills.length };
+}
+
+/** Read one account per turn so dashboard polls cannot monopolize health checks. */
+export async function dashboardAccounts(db, ownerId, quotes) {
+  const accounts = [];
+  const ids = db.prepare('SELECT id FROM accounts ORDER BY position').all();
+  const read = db.prepare('SELECT state FROM accounts WHERE id=?');
+  for (const {id} of ids) {
+    const row = read.get(id);
+    if (row) {
+      const a = JSON.parse(row.state);
+      if (a.ownerId === ownerId) accounts.push(publicAccount({...a, snapshots: readSnapshots(db, id, 'chart')}, quotes));
+    }
+    await yieldToIO();
+  }
+  // An earlier account can be removed or reassigned while later accounts are read.
+  const visible = new Set(db.prepare("SELECT id FROM accounts WHERE json_extract(state,'$.ownerId')=?").all(ownerId).map(a => a.id));
+  return accounts.filter(a => visible.has(a.id));
 }
 
 async function body(req) {
@@ -120,15 +139,15 @@ export function createApi({ db, fetcher, webRoot, port, publicUrl = "", trustPro
       return { ok: true };
     }],
     ["GET", /^\/api\/referrals$/, (ctx) => wallet.referralView(db, ctx.user.id)],
-    ["GET", /^\/api\/state$/, (ctx) => {
+    ["GET", /^\/api\/state$/, async (ctx) => {
       const quotes = getValue(db, "market:quotes", {});
+      const accounts = await dashboardAccounts(db, ctx.user.id, quotes);
       return {
         now: Date.now(), limits: LIMITS, defaults: DEFAULT_CONFIG,
         market: getValue(db, "market:health", { status: "starting" }),
         worker: getValue(db, "worker:health", { status: "starting" }),
         wallet: { balance: wallet.balance(db, ctx.user.id), referrals: db.prepare("SELECT COUNT(*) n FROM users WHERE referred_by=?").get(ctx.user.id).n },
-        accounts: listAccounts(db, {snapshots: false}).filter((a) => a.ownerId === ctx.user.id)
-          .map(a => publicAccount({...a, snapshots: readSnapshots(db, a.id, 'chart')}, quotes)),
+        accounts,
       };
     }],
     ["GET", /^\/api\/market$/, () => ({

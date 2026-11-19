@@ -10,10 +10,10 @@ function fixture(count = 8) {
   for (let i = 0; i < count; i++) {
     const a = newAccount(`source-${i}`, 'owner', `Strategy ${i}`, 'market', 10);
     for (let j = 0; j < 10; j++) {
-      const b = createBot(a, {...DEFAULT_CONFIG, name: `Bot ${j}`, budget: '100', fork: {...DEFAULT_CONFIG.fork, enabled: false, rapidPct: '27'}}, 10);
+      const b = createBot(a, {...DEFAULT_CONFIG, stages: {RSI_SHORT:true}, name: `Bot ${j}`, budget: '100', fork: {...DEFAULT_CONFIG.fork, enabled: false, rapidPct: '27'}}, 10);
       command(a, b.id, 'start', {}, 10);
     }
-    if (i === 0) createBot(a, {...DEFAULT_CONFIG, name: 'Stopped diagnostic'}, 10);
+    if (i === 0) createBot(a, {...DEFAULT_CONFIG, stages: {RSI_SHORT:true}, name: 'Stopped diagnostic'}, 10);
     a.cash = '8300'; a.fills.push({id: 'old-fill'}); a.forks = [{id:'old-pair',status:'CLOSED'}];
     sourceIds.push(a.id); insertAccount(db, a);
   }
