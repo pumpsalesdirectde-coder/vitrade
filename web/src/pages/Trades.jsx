@@ -13,6 +13,7 @@ const result = (c, mark) => {
 
 export default function Trades({ account: a }) {
   const [tab, setTab] = useState("open");
+  const [closedFilter, setClosedFilter] = useState("all");
   const [chart, setChart] = useState(null);
   const [period, setPeriod] = usePeriod();
   const range = periodRange(period);
@@ -32,7 +33,7 @@ export default function Trades({ account: a }) {
     else if (c.total > 0) by[k].win++;
     by[k].total += c.total;
   }
-  const list = tab === "open" ? open : closed;
+  const list = tab === "open" ? open : closed.filter((c) => closedFilter === "all" || (closedFilter === "profit" ? c.total > 0 : c.total < 0));
 
   return (
     <div className="trades">
@@ -75,7 +76,10 @@ export default function Trades({ account: a }) {
           </div>
           <p className="muted">Итог = результат по цене + фандинг − комиссии. Для открытых — по текущей цене Bybit.</p>
         </header>
-        {list.length === 0 ? <p className="empty-line">{tab === "open" ? "Открытых сделок нет." : "Закрытых сделок пока нет."}</p> : (
+        {tab === "closed" && <div className="seg" role="group" aria-label="Фильтр закрытых сделок">
+          {[["all", "Все"], ["profit", "В плюс"], ["loss", "В минус"]].map(([key, label]) => <button key={key} type="button" aria-pressed={closedFilter === key} onClick={() => setClosedFilter(key)}>{label}</button>)}
+        </div>}
+        {list.length === 0 ? <p className="empty-line">{tab === "open" ? "Открытых сделок нет." : closed.length === 0 ? "Закрытых сделок пока нет." : "Нет сделок для выбранного фильтра."}</p> : (
           <div className="table-wrap">
             <table className="grid-table">
               <thead>
