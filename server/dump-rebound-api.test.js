@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createApi } from "./http.js";
 import { insertAccount, openDatabase, readAccount } from "./db.js";
-import { newAccount } from "./engine/engine.js";
+import { gridPrice, newAccount } from "./engine/engine.js";
 import { applyDumpReboundPreset } from "../web/src/dump-rebound-preset.js";
 import * as auth from "./auth.js";
 
@@ -43,6 +43,18 @@ test("ordinary create-bot API stores the DUMP rebound preset without starting it
     assert.equal(bot.config.fork.enabled, false);
     assert.equal(stored.cycles.length, 0);
     assert.equal(stored.fills.length, 0);
+
+    const update = await fetch(`${base}/api/accounts/${account.id}/bots/${id}/commands`, {
+      method: "POST",
+      headers: { "x-vitrade": "1", "content-type": "application/json", cookie: `${auth.COOKIE}=${token}` },
+      body: JSON.stringify({ action: "update", payload: { ...bot.config, spacingPct: "3.25" } }),
+    });
+    assert.equal(update.status, 200);
+    const edited = readAccount(db, account.id).bots.find((candidate) => candidate.id === id);
+    assert.equal(edited.enabled, false);
+    assert.equal(edited.config.spacingPct, "3.25");
+    assert.equal(edited.config.entryPct, "12.5");
+    assert.equal(gridPrice({ direction: "SHORT", anchor: "100", config: edited.config }, 7).toString(), "122.75");
   } finally {
     await new Promise((resolve) => server.close(resolve));
     db.close();

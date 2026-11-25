@@ -5,34 +5,32 @@ import { applyFlipRiskPreset, flipRiskSizing } from "../flip-risk-preset.js";
 import { applyDumpReboundPreset, recoveryExitFormConfig } from "../dump-rebound-preset.js";
 import Hint from "../ui/Hint.jsx";
 
-/**
- * Расчёт сетки на условной цене входа 100 (или текущей цене монеты для ручного бота):
- * цена каждого шага, средняя, ликвидация после шага и цена тейк-профита.
- */
+const levelFormat = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 12, signDisplay: "exceptZero" });
+const validSpacing = (value) => Number(value) >= 0.01 && Number(value) <= 10;
+
+/** Расчёт сетки на условной цене входа 100 или текущей цене монеты. */
 function ladder(cfg, entry) {
   const steps = Number(cfg.steps);
   const budget = Number(cfg.budget);
   const lev = Number(cfg.leverage);
-  const sp = Number(cfg.spacingPct) / 100;
+  const spacing = Number(cfg.spacingPct);
   const fee = Number(cfg.feeRate);
   const dir = cfg.direction === "LONG" ? -1 : 1; // направление, куда идёт цена против позиции
-  if (!(steps > 0 && budget > 0 && lev > 0 && sp > 0 && entry > 0)) return [];
+  if (!(steps > 0 && budget > 0 && lev > 0 && validSpacing(spacing) && entry > 0)) return [];
   let qty = 0;
   let cost = 0;
   let margin = 0;
   const rows = [];
   for (let i = 0; i < steps + (cfg.orderPcts ? 1 : 0); i++) {
-    const p = entry * (1 + dir * sp * i);
+    const move = dir * spacing * i;
+    const p = entry * (1 + move / 100);
     const amount = cfg.orderPcts ? budget * Number(i === 0 ? cfg.entryPct : cfg.orderPcts[i - 1]) / 100 : budget / steps;
     const q = (amount * lev) / p;
     qty += q;
     cost += q * p;
     margin += amount - q * p * fee;
-    const avg = cost / qty;
     const liq = cfg.direction === "LONG" ? (cost - margin) / (qty * 0.995) : (cost + margin) / (qty * 1.005);
-    const target = (budget * Number(cfg.tpPct)) / 100;
-    const tp = cfg.direction === "LONG" ? avg + target / qty : avg - target / qty;
-    rows.push({ i, p, move: (p / entry - 1) * 100, amount, used: margin, volume: cost, avg, liq, liqMove: (liq / p - 1) * 100, tp });
+    rows.push({ i, p, move, amount, used: margin, volume: cost, liqMove: (liq / p - 1) * 100 });
   }
   return rows;
 }
@@ -40,7 +38,7 @@ function ladder(cfg, entry) {
 const pickConfig = (c) => ({
   name: c.name, mode: c.mode, symbol: c.symbol, direction: c.direction, budget: String(c.budget), leverage: Number(c.leverage),
   steps: Number(c.steps), spacingPct: String(c.spacingPct), entryPct: String(c.entryPct ?? "4.5"),
-  orderPcts: [...(c.orderPcts ?? Array(8).fill("4.5"))].map(String), tpPct: String(c.tpPct), slPct: String(c.slPct),
+  orderPcts: c.orderPcts?.map(String), tpPct: String(c.tpPct), slPct: String(c.slPct),
   feeRate: String(c.feeRate), slippageRate: String(c.slippageRate), marginAuto: !!c.marginAuto, marginCap: String(c.marginCap),
   exclusions: c.exclusions || [], stages: { ...c.stages }, fork: c.fork,
   guardOn: c.guardOn === true, guardStep: Number(c.guardStep ?? 3), guardPct: String(c.guardPct ?? "20"), guardMinutes: Number(c.guardMinutes ?? 60),
@@ -130,11 +128,16 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   const restFree = capital - parts.reduce((s, [, v]) => s + v, 0);
   const liveCycle = editing && a.cycles.find((c) => c.id === editing.currentCycleId && c.status === "OPEN");
   const busyBot = editing && editing.currentCycleId;
+  const fork = cfg.fork ?? state.defaults.fork;
 
   const submit = async (start) => {
+    if (!validSpacing(cfg.spacingPct)) {
+      setErr("Шаг цены сетки должен быть от 0,01 до 10%.");
+      return;
+    }
     setBusy(true);
     try {
-      const config = { ...cfg, fork: cfg.fork ?? editing?.config.fork ?? state.defaults.fork, exclusions: excl.split(/[\s,;]+/).filter(Boolean).map((s) => s.toUpperCase().replace(/USDT$/, "") + "USDT") };
+      const config = { ...cfg, fork, exclusions: excl.split(/[\s,;]+/).filter(Boolean).map((s) => s.toUpperCase().replace(/USDT$/, "") + "USDT") };
       if (editing) await post(`/api/accounts/${a.id}/bots/${editing.id}/commands`, { action: "update", payload: config });
       else await post(`/api/accounts/${a.id}/bots`, { config, start });
       refresh();
@@ -191,7 +194,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
                 </label>
               ))}
               {cfg.stages.DUMP_ACCEL && <p className="muted note">Для этой стратегии применены параметры исследованного варианта. Остальные стратегии сняты, поскольку они используют общие настройки бота.</p>}
-              {cfg.stages.DUMP_REBOUND && <p className="muted note">Применены параметры варианта с тейком +12,50 $ и единственным защитным выходом 50% при восстановлении. После выхода автоматические докупки текущей сделки прекращаются; общий денежный тейк остатка сохраняется.</p>}
+              {cfg.stages.DUMP_REBOUND && <p className="muted note">Этот бот использует значения из полей ниже. После защитного выхода докупки прекращаются, а тейк по-прежнему учитывает общий результат сделки.</p>}
               <p className="muted note">Если сигналов несколько — бот берёт монету с бóльшим оборотом. По одной монете на счёте одна позиция; после закрытия по стадии повтор не раньше чем через 24 ч.</p>
             </div>
           )}
@@ -201,11 +204,14 @@ export default function BotForm({ account: a, state, botId, refresh }) {
           <legend>Деньги и сетка</legend>
           <div className="fields">
             <label>Название<input value={cfg.name} onChange={set("name")} maxLength={64} required /></label>
-            <label><Hint term="budget">Бюджет сетки, $</Hint><input className="num" inputMode="decimal" value={cfg.budget} onChange={set("budget")} /><small className="muted">вход и докупки задаются в % бюджета</small></label>
+            <label><Hint term="budget">Бюджет сетки, $</Hint><input className="num" inputMode="decimal" value={cfg.budget} onChange={set("budget")} /><small className="muted">{cfg.orderPcts ? "вход и докупки задаются в % бюджета" : "бюджет делится поровну между шагами"}</small></label>
             <label><Hint term="leverage">Плечо</Hint><input type="number" min={state.limits.leverage[0]} max={state.limits.leverage[1]} value={cfg.leverage} onChange={set("leverage")} /></label>
-            <label><Hint term="steps">Докупок сетки</Hint><input type="number" min={state.limits.steps[0]} max={state.limits.steps[1]} value={cfg.steps} onChange={set("steps")} /></label>
-            <label>Первый вход, % бюджета сетки<input className="num" inputMode="decimal" value={cfg.entryPct} onChange={set("entryPct")} /><small className="muted">{money(Number(cfg.budget) * Number(cfg.entryPct) / 100)} маржи</small></label>
-            <div className="order-pcts"><b>Докупки, % бюджета сетки</b><div className="fields four">{cfg.orderPcts.slice(0, cfg.steps).map((value, index) => <label key={index}>Докупка {index + 1}<input className="num" inputMode="decimal" value={value} onChange={setOrderPct(index)} /><small className="muted">{money(Number(cfg.budget) * Number(value) / 100)} маржи</small></label>)}</div><small className="muted">Первый вход и активные докупки вместе не должны превышать 100% бюджета.</small></div>
+            <label>{cfg.orderPcts ? <Hint term="steps">Докупок сетки</Hint> : "Всего шагов сетки"}<input type="number" min={state.limits.steps[0]} max={state.limits.steps[1]} value={cfg.steps} onChange={set("steps")} />{!cfg.orderPcts && <small className="muted">включая первый вход</small>}</label>
+            <label>Шаг цены сетки, %<input className="num" inputMode="decimal" value={cfg.spacingPct} onChange={(e) => setCfg((prev) => ({ ...prev, spacingPct: e.target.value.replace(",", ".") }))} /><small className="muted">Уровни докупок считаются от цены первого входа. Допустимый шаг 0,01–10%.</small></label>
+            {cfg.orderPcts && <>
+              <label>Первый вход, % бюджета сетки<input className="num" inputMode="decimal" value={cfg.entryPct} onChange={set("entryPct")} /><small className="muted">{money(Number(cfg.budget) * Number(cfg.entryPct) / 100)} маржи</small></label>
+              <div className="order-pcts"><b>Докупки, % бюджета сетки</b><div className="fields four">{cfg.orderPcts.slice(0, cfg.steps).map((value, index) => <label key={index}>Докупка {index + 1}<input className="num" inputMode="decimal" value={value} onChange={setOrderPct(index)} /><small className="muted">{money(Number(cfg.budget) * Number(value) / 100)} маржи</small></label>)}</div><small className="muted">Первый вход и активные докупки вместе не должны превышать 100% бюджета.</small></div>
+            </>}
             <label><Hint term="tp">Тейк-профит, % бюджета</Hint><input className="num" inputMode="decimal" value={cfg.tpPct} onChange={set("tpPct")} /><small className="muted">{money((Number(cfg.budget) * Number(cfg.tpPct)) / 100)} чистыми</small></label>
             <label><Hint term="sl">Стоп-лосс, % бюджета</Hint><input className="num" inputMode="decimal" value={cfg.slPct} onChange={set("slPct")} /><small className="muted">−{money((Number(cfg.budget) * Number(cfg.slPct)) / 100)}</small></label>
           </div>
@@ -213,7 +219,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
 
         <fieldset>
           <legend>Защита позиции</legend>
-          <div className="notice"><b>Вилка: связанный лонг для выхода из шорта</b><p>{editing ? `Сейчас ${editing.config.fork?.enabled === false ? "выключена" : "включена"}.` : `По умолчанию ${state.defaults.fork?.enabled === false ? "выключена" : "включена"}.`} Пороги роста, размер цели и ограничения задаются во вкладке «Вилка».</p>{editing ? <a href={`#/fork/${editing.id}`}>Настроить вилку</a> : <small className="muted">Сначала создайте бота, затем откройте вкладку «Вилка».</small>}</div>
+          <div className="notice"><b>Вилка: связанный лонг для выхода из шорта</b><p>Для настроек в этой форме {fork?.enabled ? "включена" : "выключена"}. Пороги роста, размер цели и ограничения задаются во вкладке «Вилка».</p>{editing ? <a href={`#/fork/${editing.id}`}>Настроить вилку</a> : <small className="muted">Сначала создайте бота, затем откройте вкладку «Вилка».</small>}</div>
           <label className="check big-check"><input type="checkbox" checked={cfg.marginAuto} onChange={set("marginAuto")} />
             <span><b><Hint term="cushion">Подушка маржи</Hint></b> — если запас до ликвидации меньше 15%, бот добавит маржу со свободных средств, а при запасе больше 30% вернёт её. Рекомендуем держать включённой.</span></label>
           {cfg.marginAuto && <label className="inline"><Hint term="cushionCap">Не больше, $</Hint><input className="num" inputMode="decimal" value={cfg.marginCap} onChange={set("marginCap")} /></label>}
@@ -257,15 +263,15 @@ export default function BotForm({ account: a, state, botId, refresh }) {
       <aside className="preview" aria-label="Расчёт сетки">
         <h3>Как пойдёт сетка</h3>
         {liveCycle && <p className="muted">Предварительный расчёт всей сетки для следующей сделки. В текущей позиции уже исполненные шаги остаются прежними.</p>}
-        <p className="muted">{manual && mark ? `От текущей цены ${coin(cfg.symbol)}.` : "В процентах от цены первого входа."} {dirPrev === "SHORT" ? "Расчёт для шорта: докупки выше входа." : "Расчёт для лонга: докупки ниже входа."}</p>
+        <p className="muted">{manual && mark ? `За цену первого входа взята текущая цена ${coin(cfg.symbol)}.` : "Уровни показаны в процентах от цены первого входа."} {dirPrev === "SHORT" ? "Для шорта докупки выше входа." : "Для лонга докупки ниже входа."} Шаг 1 — первый вход.</p>
         {rows.length > 0 && (
           <table className="ladder">
-            <thead><tr><th>Шаг</th><th className="num">{manual && mark ? "Цена" : "Движение"}</th><th className="num">Вложено</th><th className="num"><Hint term="lr">До ликвидации</Hint></th></tr></thead>
+            <thead><tr><th>Шаг</th><th className="num">{manual && mark ? "Цена" : "Уровень от входа"}</th><th className="num">На шаг / маржа после комиссий</th><th className="num"><Hint term="lr">До ликвидации</Hint></th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.i}>
                   <td>{r.i + 1}</td>
-                  <td className="num">{manual && mark ? price(r.p) : (r.move > 0 ? "+" : "") + pct(r.move)}</td>
+                  <td className="num">{manual && mark ? price(r.p) : `${levelFormat.format(r.move)}%`}</td>
                   <td className="num">{money(r.amount, 2)} / {money(r.used, 2)}</td>
                   <td className={`num ${Math.abs(r.liqMove) < 15 ? "down" : ""}`}>{pct(Math.abs(r.liqMove))}</td>
                 </tr>
@@ -273,16 +279,14 @@ export default function BotForm({ account: a, state, botId, refresh }) {
             </tbody>
           </table>
         )}
-        {last && (
-          <p className="preview-sum">Вся сетка покрывает движение на <b>{pct(Math.abs(last.move))}</b> против позиции. После последнего шага ликвидация ещё на <b>{pct(Math.abs(last.liqMove))}</b> дальше. Объём позиции до <b>{money(last.volume, 0)}</b>.</p>
-        )}
+        {last && <p className="preview-sum">Последний плановый шаг на <b>{levelFormat.format(last.move)}%</b> от входа. Это расчёт при исполнении всех шагов, без подушки маржи. Стопы и защиты могут прервать сетку раньше. Плановый объём позиции до <b>{money(last.volume, 0)}</b>.</p>}
         <h3>Распределение капитала</h3>
         <div className="alloc" role="img" aria-label="Распределение капитала счёта">
           {parts.map(([l, v, cls]) => <span key={l} className={cls} style={{ width: `${Math.max(0, Math.min(100, (v / capital) * 100))}%` }} />)}
         </div>
         <dl className="alloc-legend">
           {parts.map(([l, v, cls]) => <div key={l}><dt><i className={cls} />{l}</dt><dd>{money(v, 0)}</dd></div>)}
-          <div><dt><i className="seg-free" />Останется свободно</dt><dd className={restFree < 0 ? "down" : ""}>{money(restFree, 0)}</dd></div>
+          <div><dt><i className="seg-free" />Запас при полном использовании лимитов</dt><dd className={restFree < 0 ? "down" : ""}>{money(restFree, 0)}</dd></div>
         </dl>
         {cfg.marginAuto && <p className="muted small-note">Подушка маржи — запас свободных денег, который бот может добавить в сделку при угрозе ликвидации. Пока подушка не нужна, деньги остаются свободными.</p>}
         {restFree < 0 && <p className="down">Бюджетов и подушек больше, чем капитала: часть ботов не сможет открыть сделки или защитить позицию.</p>}

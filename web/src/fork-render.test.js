@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { DEFAULT_CONFIG, gridPrice } from "../../server/engine/engine.js";
+import { applyDumpReboundPreset } from "./dump-rebound-preset.js";
 
 let server;
 let Fork, Bots, BotForm;
@@ -58,6 +60,25 @@ test("direct child edit route shows pair link without editing controls", () => {
   assert.match(html, /нельзя редактировать или запускать отдельно/);
   assert.match(html, /href="#\/fork\/short"/);
   assert.doesNotMatch(html, /<form/);
+});
+
+test("bot editor shows the saved price spacing separately from budget shares and previews engine levels", () => {
+  const rebound = applyDumpReboundPreset(DEFAULT_CONFIG, Object.keys(DEFAULT_CONFIG.stages));
+  const saved = { ...rebound, spacingPct: "3.25" };
+  const html = render(BotForm, { account: { ...account, bots: [{ ...parent, config: saved }] }, state, botId: parent.id });
+  assert.match(html, /<label>Шаг цены сетки, %<input[^>]*value="3\.25"/);
+  assert.match(html, /<label>Первый вход, % бюджета сетки<input[^>]*value="12\.5"/);
+  assert.equal(gridPrice({ direction: "SHORT", anchor: "100", config: saved }, 7).toString(), "122.75");
+  assert.match(html, /<td>8<\/td><td class="num">\+22,75%<\/td>/);
+});
+
+test("bot editor keeps the number and size of steps for a saved equal-split grid", () => {
+  const html = render(BotForm, { account, state, botId: parent.id });
+  assert.match(html, /Всего шагов сетки/);
+  assert.doesNotMatch(html, /Первый вход, % бюджета сетки/);
+  assert.match(html, /<td>5<\/td><td class="num">\+40(?:,0+)?%<\/td>/);
+  assert.doesNotMatch(html, /<td>6<\/td>/);
+  assert.match(html, /400,00/);
 });
 
 test("both members of a closing pair show no independent bot controls", () => {
