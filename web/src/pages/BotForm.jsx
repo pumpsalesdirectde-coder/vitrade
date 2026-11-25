@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { get, post } from "../api.js";
 import { STRATEGY, STRATEGY_ORDER, coin, money, pct, price } from "../format.js";
 import { applyFlipRiskPreset, flipRiskSizing } from "../flip-risk-preset.js";
+import { applyDumpReboundPreset, recoveryExitFormConfig } from "../dump-rebound-preset.js";
 import Hint from "../ui/Hint.jsx";
 
 /**
@@ -44,6 +45,7 @@ const pickConfig = (c) => ({
   exclusions: c.exclusions || [], stages: { ...c.stages }, fork: c.fork,
   guardOn: c.guardOn === true, guardStep: Number(c.guardStep ?? 3), guardPct: String(c.guardPct ?? "20"), guardMinutes: Number(c.guardMinutes ?? 60),
   accelerationStopOn: c.stages?.DUMP_ACCEL === true || c.accelerationStopOn === true, accelerationStopPct: String(c.accelerationStopPct ?? "10"),
+  ...recoveryExitFormConfig(c),
 });
 
 export default function BotForm({ account: a, state, botId, refresh }) {
@@ -60,13 +62,13 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   }, []);
   const restorePreviousConfig = (prev, snapshot) => {
     const original = snapshot ?? pickConfig({ ...state.defaults, name: prev.name });
-    return { ...original, stages: { ...original.stages, DUMP_ACCEL: false, FLIP_RISK: false } };
+    return { ...original, stages: { ...original.stages, DUMP_ACCEL: false, DUMP_REBOUND: false, FLIP_RISK: false } };
   };
   const set = (k) => (e) => {
     const value = e.target.type === "checkbox" ? e.target.checked : e.target.type === "number" ? Number(e.target.value) : e.target.value;
     const snapshot = beforePreset.current;
-    if (k === "mode" && value === "manual" && (cfg.stages.DUMP_ACCEL || cfg.stages.FLIP_RISK)) beforePreset.current = null;
-    setCfg((prev) => k === "mode" && value === "manual" && (prev.stages.DUMP_ACCEL || prev.stages.FLIP_RISK)
+    if (k === "mode" && value === "manual" && (cfg.stages.DUMP_ACCEL || cfg.stages.DUMP_REBOUND || cfg.stages.FLIP_RISK)) beforePreset.current = null;
+    setCfg((prev) => k === "mode" && value === "manual" && (prev.stages.DUMP_ACCEL || prev.stages.DUMP_REBOUND || prev.stages.FLIP_RISK)
       ? { ...restorePreviousConfig(prev, snapshot), mode: value }
       : { ...prev, [k]: value });
   };
@@ -78,6 +80,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
     feeRate: "0.0005", slippageRate: "0.0002", marginAuto: true, marginCap: "1000",
     guardOn: true, guardStep: 3, guardPct: "20", guardMinutes: 60,
     accelerationStopOn: true, accelerationStopPct: "10",
+    recoveryExitOn: false,
     fork: { ...prev.fork, enabled: false },
     stages: Object.fromEntries(STRATEGY_ORDER.map((key) => [key, key === "DUMP_ACCEL"])),
   });
@@ -88,12 +91,15 @@ export default function BotForm({ account: a, state, botId, refresh }) {
     }
     setErr("");
     const snapshot = beforePreset.current;
-    const special = key === "DUMP_ACCEL" || key === "FLIP_RISK";
-    const wasPreset = cfg.stages.DUMP_ACCEL || cfg.stages.FLIP_RISK;
+    const special = key === "DUMP_ACCEL" || key === "DUMP_REBOUND" || key === "FLIP_RISK";
+    const wasPreset = cfg.stages.DUMP_ACCEL || cfg.stages.DUMP_REBOUND || cfg.stages.FLIP_RISK;
     if (special && checked && !wasPreset) beforePreset.current = structuredClone(cfg);
     else if (wasPreset && (!special || !checked)) beforePreset.current = null;
     setCfg((prev) => {
       if (key === "DUMP_ACCEL") return checked ? applyDump10Preset(prev) : restorePreviousConfig(prev, snapshot);
+      if (key === "DUMP_REBOUND") return checked
+        ? applyDumpReboundPreset(prev, STRATEGY_ORDER, editing ? prev.name : undefined)
+        : restorePreviousConfig(prev, snapshot);
       if (key === "FLIP_RISK") return checked
         ? applyFlipRiskPreset(prev, a.equity, STRATEGY_ORDER, editing ? prev.name : "Подтверждённый разворот — расчётный риск")
         : restorePreviousConfig(prev, snapshot);
@@ -105,7 +111,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
   const mark = Number(quotes.find((q) => q.symbol === cfg.symbol)?.mark || 0);
   const entry = manual && mark ? mark : 100;
   // У авто-бота сторону задаёт стратегия: лонг только у «Отскока» и RSI-лонга.
-  const shortPicked = ["RSI_SHORT", "PUMP", "EARLY", "FLIP", "FLIP_RISK", "DUMP", "DUMP_ACCEL"].some((k) => cfg.stages[k]);
+  const shortPicked = ["RSI_SHORT", "PUMP", "EARLY", "FLIP", "FLIP_RISK", "DUMP", "DUMP_ACCEL", "DUMP_REBOUND"].some((k) => cfg.stages[k]);
   const dirPrev = manual ? cfg.direction : shortPicked ? "SHORT" : "LONG";
   const rows = useMemo(() => ladder({ ...cfg, direction: dirPrev }, entry), [cfg, entry, dirPrev]);
   const last = rows.at(-1);
@@ -185,6 +191,7 @@ export default function BotForm({ account: a, state, botId, refresh }) {
                 </label>
               ))}
               {cfg.stages.DUMP_ACCEL && <p className="muted note">Для этой стратегии применены параметры исследованного варианта. Остальные стратегии сняты, поскольку они используют общие настройки бота.</p>}
+              {cfg.stages.DUMP_REBOUND && <p className="muted note">Применены параметры варианта с тейком +12,50 $ и единственным защитным выходом 50% при восстановлении. После выхода автоматические докупки текущей сделки прекращаются; общий денежный тейк остатка сохраняется.</p>}
               <p className="muted note">Если сигналов несколько — бот берёт монету с бóльшим оборотом. По одной монете на счёте одна позиция; после закрытия по стадии повтор не раньше чем через 24 ч.</p>
             </div>
           )}
@@ -219,9 +226,19 @@ export default function BotForm({ account: a, state, botId, refresh }) {
               <label>За время, мин<input type="number" min={5} max={240} value={cfg.guardMinutes} onChange={set("guardMinutes")} /><small className="muted">окно наблюдения, 5–240 мин</small></label>
             </div>
           )}
-          <label className="check big-check"><input type="checkbox" checked={cfg.accelerationStopOn} disabled={!!cfg.stages.DUMP_ACCEL} onChange={set("accelerationStopOn")} />
+          <label className="check big-check"><input type="checkbox" checked={cfg.accelerationStopOn} disabled={!!(cfg.stages.DUMP_ACCEL || cfg.stages.DUMP_REBOUND)} onChange={set("accelerationStopOn")} />
             <span>Защитный выход SHORT: рост монеты за завершённый час, минимум три шага сетки и убыточное закрытие. После стопа монета исключается для всех ботов этого счёта; бот продолжает работу.</span></label>
           {cfg.accelerationStopOn && <label>Рост за час, %<input className="num" inputMode="decimal" value={cfg.accelerationStopPct} onChange={set("accelerationStopPct")} /></label>}
+          <label className="check big-check"><input type="checkbox" checked={cfg.recoveryExitOn} disabled={!!cfg.stages.DUMP_REBOUND} onChange={set("recoveryExitOn")} />
+            <span><b>Частичный выход при восстановлении</b> — после заданного числа исполненных шагов защита взводится при глубоком убытке. Когда общий ожидаемый чистый результат восстановится до порога выхода, бот один раз закрывает указанную долю актуального объёма и останавливает дальнейшие автоматические докупки. Тейк и стоп имеют приоритет.</span></label>
+          {cfg.recoveryExitOn && (
+            <div className="fields four guard-fields">
+              <label>После исполненных шагов<input type="number" min={1} max={9} value={cfg.recoveryArmStep} onChange={set("recoveryArmStep")} /></label>
+              <label>Взвести при результате, $<input className="num" inputMode="decimal" value={cfg.recoveryArmNet} onChange={set("recoveryArmNet")} /></label>
+              <label>Выйти при восстановлении до, $<input className="num" inputMode="decimal" value={cfg.recoveryTargetNet} onChange={set("recoveryTargetNet")} /></label>
+              <label>Закрыть объёма, %<input className="num" inputMode="decimal" value={cfg.recoveryExitPct} onChange={set("recoveryExitPct")} /></label>
+            </div>
+          )}
           {!manual && <label>Не торговать монеты<input value={excl} onChange={(e) => setExcl(e.target.value)} placeholder="Например: JCT, ARIA" /></label>}
         </fieldset>
 

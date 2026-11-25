@@ -44,9 +44,10 @@ export const STRATEGY = {
   FLIP: { short: "Разворот", name: "Подтверждённый разворот", about: "После пампа 20%+ откат 5–12% от вершины. Шорт." },
   DUMP: { short: "Слив", name: "Слив", about: "После пампа 20%+ падение 12–40% и цена ниже, чем 3 часа назад. Шорт по тренду." },
   DUMP_ACCEL: { short: "Слив · 10%", name: "DUMP SHORT — выход 10% за час", about: "Шорт по сигналу «Слив». После трёх исполненных шагов: закрыть убыточную позицию при росте монеты на 10%+ за час; монету больше не брать. Выбор применяет настройки изученной стратегии." },
+  DUMP_REBOUND: { short: "Слив · восстановление", name: "DUMP SHORT — тейк 2,5% и выход 50% при восстановлении", about: "Шорт по сигналу «Слив». После 4-го исполненного шага защита взводится при результате −75 $ и один раз закрывает 50% объёма при восстановлении до −10 $, затем останавливает докупки. Тейк остатка — +12,50 $ общим чистым итогом." },
   CRASH: { short: "Отскок", name: "Отскок после обвала", about: "Обвал 25%+ от недавней вершины и первые признаки отскока. Лонг." },
 };
-export const STRATEGY_ORDER = ["EARLY", "FLIP", "FLIP_RISK", "DUMP", "DUMP_ACCEL", "PUMP", "CRASH", "RSI_SHORT", "RSI_LONG"];
+export const STRATEGY_ORDER = ["EARLY", "FLIP", "FLIP_RISK", "DUMP", "DUMP_ACCEL", "DUMP_REBOUND", "PUMP", "CRASH", "RSI_SHORT", "RSI_LONG"];
 
 export const entryLabel = (cycle) =>
   cycle.forkId && cycle.direction === "LONG" ? "Вилка · лонг"
@@ -56,6 +57,7 @@ export const entryLabel = (cycle) =>
 
 export const CLOSE_REASON = {
   TAKE_PROFIT: "Тейк-профит", STOP_LOSS: "Стоп-лосс", MANUAL: "Закрыта вручную", LIQUIDATION: "Ликвидация", PARTIAL: "Частично",
+  RECOVERY_PARTIAL: "Защитный частичный выход при восстановлении",
   FORK_TARGET: "Вилка: общий результат достигнут", FORK_STOP: "Вилка: предел дополнительного убытка", FORK_TIMEOUT: "Вилка: истекло время",
   FORK_MANUAL: "Вилка: обе позиции закрыты вручную", FORK_LIQUIDATION: "Вилка: ликвидация одной из сторон", FORK_ORPHAN: "Вилка: закрытие оставшейся стороны",
 };
@@ -68,6 +70,10 @@ export function botStatus(b, cycle) {
   if (cycle?.status === "CLOSING") return { key: "busy", text: "Закрывается" };
   if (cycle?.forkId) return { key: "live", text: "Вилка · совместный выход" };
   if (cycle && b.paused) return { key: "hold", text: "В позиции · докупки на паузе" };
+  if (cycle?.dcaLockReason === "RECOVERY_PARTIAL") {
+    const share = cycle.config?.recoveryExitPct ? `${cycle.config.recoveryExitPct}%` : "часть объёма";
+    return { key: "hold", text: `В позиции · ${share} закрыто при восстановлении, докупки остановлены` };
+  }
   if (cycle?.dcaLocked) return { key: "hold", text: "В позиции · подстраховка остановила докупки" };
   if (cycle && b.finish) return { key: "busy", text: "Доводит сделку и остановится" };
   if (cycle) return { key: "live", text: "В позиции" };

@@ -20,7 +20,8 @@ export const DEFAULT_CONFIG = {
   // на guardPct% и больше, бот перестаёт докупать и держит набранный объём
   guardOn: true, guardStep: 3, guardPct: "20", guardMinutes: 60,
   accelerationStopOn: false, accelerationStopPct: "10",
-  stages: { RSI_SHORT: false, RSI_LONG: false, PUMP: false, EARLY: false, FLIP: false, FLIP_RISK: false, DUMP: false, DUMP_ACCEL: false, CRASH: false },
+  recoveryExitOn: false, recoveryArmStep: 4, recoveryArmNet: "-75", recoveryTargetNet: "-10", recoveryExitPct: "50",
+  stages: { RSI_SHORT: false, RSI_LONG: false, PUMP: false, EARLY: false, FLIP: false, FLIP_RISK: false, DUMP: false, DUMP_ACCEL: false, DUMP_REBOUND: false, CRASH: false },
 };
 
 export function newAccount(id, ownerId, name, source, now, exchange = "bybit", initial = "10000") {
@@ -90,7 +91,10 @@ function reduce(a, b, c, q, percent, reason, now) {
     side: c.direction === "LONG" ? "SELL" : "BUY", quantity: str(qty), price: p, fee: str(fee), realized: str(gross),
     at: now, reason, source: a.source, model: "PAPER-0.2",
   });
-  event(a, "FILL", reason, now, b, c, str(gross.minus(fee)));
+  const message = reason === "RECOVERY_PARTIAL"
+    ? `Защитный выход: закрыто ${str(percent)}% при восстановлении`
+    : reason;
+  event(a, "FILL", message, now, b, c, str(gross.minus(fee)));
   if (D(c.quantity).eq(0)) {
     c.status = "CLOSED";
     c.closedAt = now;
@@ -106,6 +110,35 @@ function reduce(a, b, c, q, percent, reason, now) {
     b.lastReason = "Сделка завершена";
   }
   return true;
+}
+
+/** Один защитный выход на восстановлении; состояние хранится прямо в JSON сделки. */
+function manageRecoveryExit(a, b, c, q, now) {
+  const g = c.config;
+  if (c.status !== "OPEN" || !g.recoveryExitOn || c.recoveryExitDoneAt) return;
+  if (a.fundingGaps.length) {
+    if (c.recoveryExitArmedAt) b.lastReason = "Защитный выход ждёт сверки фандинга";
+    return;
+  }
+  const net = expectedResult(c, q);
+  if (!c.recoveryExitArmedAt) {
+    if (c.usedSteps < g.recoveryArmStep || net.gt(g.recoveryArmNet)) return;
+    c.recoveryExitArmedAt = now;
+    c.recoveryExitArmedNet = str(net);
+    event(a, "RECOVERY_ARMED", `Защита восстановления взведена при результате ${str(net)} $`, now, b, c, str(net));
+    return;
+  }
+  if (net.lt(g.recoveryTargetNet)) return;
+  if (!reduce(a, b, c, q, g.recoveryExitPct, "RECOVERY_PARTIAL", now)) {
+    b.lastReason = `Защитный выход ${str(g.recoveryExitPct)}% ждёт bid/ask`;
+    return;
+  }
+  c.recoveryExitDoneAt = now;
+  c.recoveryExitFillId = a.fills.at(-1)?.id;
+  c.dcaLocked = true;
+  c.dcaLockedAt = now;
+  c.dcaLockReason = "RECOVERY_PARTIAL";
+  b.lastReason = `Защита: закрыто ${str(g.recoveryExitPct)}% объёма, докупки остановлены`;
 }
 
 /** «Подушка»: держит запас до ликвидации между 15% и 30%, добавляя или возвращая маржу. */
@@ -172,10 +205,13 @@ function pickAuto(a, b, candidates, now) {
   const picks = [];
   for (const q of candidates) {
     if (a.cycles.some((c) => c.symbol === q.symbol && c.status !== "CLOSED")) continue;
-    const stageOk = a.source === "market" && q.stage && (s[q.stage] || (q.stage === "FLIP" && s.FLIP_RISK) || (q.stage === "DUMP" && s.DUMP_ACCEL)) && now - (q.stageAt || 0) < 42e5
+    const stageOk = a.source === "market" && q.stage && (s[q.stage] || (q.stage === "FLIP" && s.FLIP_RISK) || (q.stage === "DUMP" && (s.DUMP_ACCEL || s.DUMP_REBOUND))) && now - (q.stageAt || 0) < 42e5
       && !a.cycles.some((c) => c.symbol === q.symbol && now - (c.closedAt || 0) < 864e5);
     if (stageOk) {
-      picks.push({ ...q, pickDir: stageDirection(q.stage), pickWhy: q.stage === "FLIP" && s.FLIP_RISK ? "FLIP_RISK" : q.stage === "DUMP" && s.DUMP_ACCEL ? "DUMP_ACCEL" : q.stage });
+      const pickWhy = q.stage === "FLIP" && s.FLIP_RISK ? "FLIP_RISK"
+        : q.stage === "DUMP" && s.DUMP_REBOUND ? "DUMP_REBOUND"
+          : q.stage === "DUMP" && s.DUMP_ACCEL ? "DUMP_ACCEL" : q.stage;
+      picks.push({ ...q, pickDir: stageDirection(q.stage), pickWhy });
     } else if (
       q.signal && s["RSI_" + q.signal] && (a.source === "scenario" || q.eligible === true)
       && (q.signalAt || 0) > Math.max(b.activatedAt, b.lastSignal[q.symbol] || 0)
@@ -186,6 +222,34 @@ function pickAuto(a, b, candidates, now) {
   }
   return picks.sort((x, y) => D(y.turnover || 0).cmp(x.turnover || 0) || x.symbol.localeCompare(y.symbol))[0];
 }
+
+function triggerExit(a, b, c, q, now) {
+  if (c.status !== "OPEN") return;
+  const net = expectedResult(c, q);
+  const budget = D(c.config.budget);
+  if (net.lte(budget.times(c.config.slPct).div(-100))) {
+    c.status = "CLOSING";
+    c.closeReason = "STOP_LOSS";
+    b.pending = [];
+  } else if (c.config.accelerationStopOn && c.direction === "SHORT" && c.usedSteps >= 3
+    && q.accelerationAt === Math.floor(now / 3e5) * 3e5
+    && now - q.accelerationAt < 6e4
+    && Number(q.accelerationGainPct) >= Number(c.config.accelerationStopPct)
+    && unrealized(c, q.mark).lt(0) && net.lt(0)) {
+    c.status = "CLOSING";
+    c.closeReason = "STOP_LOSS";
+    c.protectionTrigger = `ACCEL_1H_${c.config.accelerationStopPct}PCT`;
+    c.protectionHourGainPct = q.accelerationGainPct;
+    c.protectionObservedAt = q.accelerationAt;
+    b.pending = [];
+  } else if (!a.fundingGaps.length && executionPrice(c, q, false) !== null && net.gte(budget.times(c.config.tpPct).div(100))) {
+    c.status = "CLOSING";
+    c.closeReason = "TAKE_PROFIT";
+    b.pending = [];
+  }
+}
+
+const dumpReboundCycle = (c) => c.stage === "DUMP_REBOUND" || c.config.stages?.DUMP_REBOUND === true;
 
 /** Один шаг жизни счёта: вход, контроль ликвидации, TP/SL, команды, докупки по сетке, снимок капитала. */
 export function advance(a, quotes, now) {
@@ -229,34 +293,12 @@ export function advance(a, quotes, now) {
       b.pending = [];
       event(a, "LIQUIDATION_TRIGGER", "Достигнут модельный порог ликвидации", now, b, c, q.mark);
     }
-    if (c.status === "OPEN") {
-      const net = expectedResult(c, q);
-      const budget = D(c.config.budget);
-      if (net.lte(budget.times(c.config.slPct).div(-100))) {
-        c.status = "CLOSING";
-        c.closeReason = "STOP_LOSS";
-        b.pending = [];
-      } else if (c.config.accelerationStopOn && c.direction === "SHORT" && c.usedSteps >= 3
-        && q.accelerationAt === Math.floor(now / 3e5) * 3e5
-        && now - q.accelerationAt < 6e4
-        && Number(q.accelerationGainPct) >= Number(c.config.accelerationStopPct)
-        && unrealized(c, q.mark).lt(0) && net.lt(0)) {
-        c.status = "CLOSING";
-        c.closeReason = "STOP_LOSS";
-        c.protectionTrigger = `ACCEL_1H_${c.config.accelerationStopPct}PCT`;
-        c.protectionHourGainPct = q.accelerationGainPct;
-        c.protectionObservedAt = q.accelerationAt;
-        b.pending = [];
-      } else if (!a.fundingGaps.length && executionPrice(c, q, false) !== null && net.gte(budget.times(c.config.tpPct).div(100))) {
-        c.status = "CLOSING";
-        c.closeReason = "TAKE_PROFIT";
-        b.pending = [];
-      }
-    }
+    triggerExit(a, b, c, q, now);
     if (c.status !== "OPEN") {
       if (!reduce(a, b, c, q, "100", c.closeReason || "MANUAL", now)) b.lastReason = "Закрытие ждёт bid/ask";
       continue;
     }
+    manageRecoveryExit(a, b, c, q, now);
     marginControl(a, b, c, q, now);
     for (const p of [...b.pending]) {
       if (c.status !== "OPEN") break;
@@ -270,14 +312,27 @@ export function advance(a, quotes, now) {
     if (tryOpenFork(a, b, c, q, now, forkOps)) continue;
     guardCheck(a, b, c, q, now);
     if (c.status !== "OPEN" || b.paused || c.dcaLocked || a.fundingGaps.length || free(a).lt(0)) continue;
+    const interlocked = dumpReboundCycle(c);
     while (c.usedSteps < c.config.steps + (c.config.orderPcts ? 1 : 0)) {
+      if (interlocked) {
+        guardCheck(a, b, c, q, now, true);
+        if (c.dcaLocked) break;
+      }
       const boundary = gridPrice(c, c.usedSteps);
       if (c.direction === "LONG" ? D(q.mark).gt(boundary) : D(q.mark).lt(boundary)) break;
       const amount = c.config.orderPcts
         ? str(D(c.config.budget).times(c.config.orderPcts[c.usedSteps - 1]).div(100))
         : c.usedSteps === c.config.steps - 1 ? c.remainingBudget : str(D(c.config.budget).div(c.config.steps));
       if (!increase(a, b, c, q, amount, true, now)) break;
+      if (interlocked) {
+        triggerExit(a, b, c, q, now);
+        if (c.status !== "OPEN") {
+          if (!reduce(a, b, c, q, "100", c.closeReason || "MANUAL", now)) b.lastReason = "Закрытие ждёт bid/ask";
+          break;
+        }
+      }
     }
+    manageRecoveryExit(a, b, c, q, now);
   }
   const equity = D(a.cash).plus(
     a.cycles.filter((c) => c.status !== "CLOSED").reduce((s, c) => s.plus(c.margin).plus(unrealized(c, c.lastMark)), D(0)),
@@ -296,14 +351,16 @@ export function advance(a, quotes, now) {
  * сравниваем текущую цену с самой выгодной для позиции ценой за последние guardMinutes (в неё входят и цены докупок).
  * Если ушли против позиции на guardPct% и больше — докупки останавливаются, набранная позиция остаётся.
  */
-function guardCheck(a, b, c, q, now) {
+function guardCheck(a, b, c, q, now, includeFinalOrder = false) {
   const g = c.config;
   if (!g.guardOn || c.dcaLocked) return;
   const win = g.guardMinutes * 6e4;
   c.marks ||= [];
   if (!c.marks.length || now - c.marks.at(-1)[0] >= 6e4) c.marks.push([now, q.mark]);
   while (c.marks.length && now - c.marks[0][0] > win) c.marks.shift();
-  if (c.usedSteps < g.guardStep || c.usedSteps >= g.steps) return;
+  const totalOrders = g.steps + (g.orderPcts ? 1 : 0);
+  const terminal = includeFinalOrder ? totalOrders : g.steps;
+  if (c.usedSteps < g.guardStep || c.usedSteps >= terminal) return;
   const short = c.direction === "SHORT";
   const prices = [...c.marks.map((m) => Number(m[1])),
     ...a.fills.filter((f) => f.cycleId === c.id && f.action === "increase" && now - f.at <= win).map((f) => Number(f.price))];
@@ -313,6 +370,7 @@ function guardCheck(a, b, c, q, now) {
   if (move < Number(g.guardPct)) return;
   c.dcaLocked = true;
   c.dcaLockedAt = now;
+  c.dcaLockReason = "GUARD";
   b.lastReason = "Подстраховка: докупки остановлены";
   event(a, "GUARD", `Подстраховка: цена ушла против позиции на ${move.toFixed(1)}% за ${g.guardMinutes} мин — докупки остановлены, позиция сохранена`, now, b, c, q.mark);
 }
@@ -390,6 +448,24 @@ export function validateConfig(input) {
   } catch {
     throw Error("Ускорение: допустимый рост за час от 0 до 100%");
   }
+  c.recoveryExitOn = c.recoveryExitOn === true;
+  c.recoveryArmStep = c.recoveryArmStep === undefined ? 4 : c.recoveryArmStep;
+  c.recoveryArmNet = c.recoveryArmNet === undefined ? "-75" : c.recoveryArmNet;
+  c.recoveryTargetNet = c.recoveryTargetNet === undefined ? "-10" : c.recoveryTargetNet;
+  c.recoveryExitPct = c.recoveryExitPct === undefined ? "50" : c.recoveryExitPct;
+  if (!Number.isInteger(c.recoveryArmStep) || c.recoveryArmStep < 1 || c.recoveryArmStep > s1 + 1) {
+    throw Error("Восстановление: шаг должен быть от 1 до 9");
+  }
+  try {
+    const arm = D(c.recoveryArmNet), target = D(c.recoveryTargetNet), percent = D(c.recoveryExitPct);
+    if (!arm.isFinite() || !target.isFinite() || !percent.isFinite() || arm.gte(target) || target.gt(0)
+      || percent.lte(0) || percent.gt(100)) throw Error();
+    c.recoveryArmNet = str(arm);
+    c.recoveryTargetNet = str(target);
+    c.recoveryExitPct = str(percent);
+  } catch {
+    throw Error("Восстановление: порог взведения должен быть ниже порога выхода, доля выхода — от 0 до 100%");
+  }
   if (!Number.isInteger(c.guardStep) || c.guardStep < 1 || c.guardStep > s1 || !Number.isInteger(c.guardMinutes) || c.guardMinutes < 5 || c.guardMinutes > 240) {
     throw Error("Подстраховка: шаг 1–8, окно 5–240 минут");
   }
@@ -407,6 +483,10 @@ export function validateConfig(input) {
   const st = c.stages && typeof c.stages === "object" ? c.stages : { ["RSI_" + c.direction]: true };
   c.stages = Object.fromEntries(STRATEGY_KEYS.map((k) => [k, st[k] === true]));
   if (c.stages.DUMP_ACCEL) c.accelerationStopOn = true;
+  if (c.stages.DUMP_REBOUND) {
+    c.accelerationStopOn = true;
+    c.recoveryExitOn = true;
+  }
   if (c.mode !== "manual" && !Object.values(c.stages).some(Boolean)) throw Error("Отметьте хотя бы одну стратегию");
   c.fork = normalizeFork(c.fork);
   c.name = c.name.trim();
@@ -434,7 +514,8 @@ function updateOpenCycle(c, next) {
   if (D(next.budget).lt(spent)) throw Error('Новый бюджет меньше суммы уже исполненных покупок');
   const live = { ...old };
   for (const key of ['budget', 'steps', 'spacingPct', 'tpPct', 'slPct', 'marginAuto', 'marginCap',
-    'guardOn', 'guardStep', 'guardPct', 'guardMinutes', 'accelerationStopOn', 'accelerationStopPct']) live[key] = next[key];
+    'guardOn', 'guardStep', 'guardPct', 'guardMinutes', 'accelerationStopOn', 'accelerationStopPct',
+    'recoveryExitOn', 'recoveryArmStep', 'recoveryArmNet', 'recoveryTargetNet', 'recoveryExitPct']) live[key] = next[key];
   if (hasOrders) {
     live.orderPcts = old.orderPcts.map((value, i) => i >= c.usedSteps - 1 ? (next.orderPcts ?? old.orderPcts)[i] : value);
     const future = live.orderPcts.slice(c.usedSteps - 1, next.steps)

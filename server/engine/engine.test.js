@@ -4,6 +4,7 @@ import { advance, command, createBot, newAccount, summarize, validateConfig, DEF
 import { classifyStage } from "./signals.js";
 import { collectAcceleration } from "../market/bybit.js";
 import { applyFlipRiskPreset } from "../../web/src/flip-risk-preset.js";
+import { applyDumpReboundPreset } from "../../web/src/dump-rebound-preset.js";
 
 const quote = (symbol, mark, now, extra = {}) => ({
   [symbol]: { symbol, mark: String(mark), bid: String(mark), ask: String(mark), at: now, source: "market", turnover: "1000000", ...extra },
@@ -28,6 +29,7 @@ test("hourly 10% exit blacklists the coin and keeps the bot active", () => {
   advance(a, quote("XUSDT", 104.5, 600001), 600001);
   advance(a, quote("XUSDT", 109, 600002), 600002);
   assert.equal(a.cycles[0].usedSteps, 3);
+  a.fundingGaps = ["XUSDT:funding"];
   advance(a, quote("XUSDT", 115, 930000, { accelerationAt: 900000, accelerationGainPct: 10.1 }), 930000);
   assert.equal(a.cycles[0].closeReason, "STOP_LOSS");
   assert.equal(a.cycles[0].protectionTrigger, "ACCEL_1H_10PCT");
@@ -230,4 +232,185 @@ test("acceleration strategy is a separate DUMP selection and enables its protect
   assert.equal(a.cycles.length, 1);
   assert.equal(a.cycles[0].stage, "DUMP_ACCEL");
   assert.equal(a.cycles[0].direction, "SHORT");
+});
+
+test("rebound strategy is a separate DUMP selection and keeps acceleration stop enabled", () => {
+  const a = newAccount("dump-rebound", "local", "DUMP rebound", "market", 0);
+  const b = createBot(a, applyDumpReboundPreset(DEFAULT_CONFIG, Object.keys(DEFAULT_CONFIG.stages)), 0);
+  assert.equal(b.config.recoveryExitOn, true);
+  assert.equal(b.config.accelerationStopOn, true);
+  command(a, b.id, "start", {}, 0);
+  const now = 3600000;
+  advance(a, quote("XUSDT", 100, now, { stage: "PUMP", stageAt: now }), now);
+  assert.equal(a.cycles.length, 0);
+  advance(a, quote("XUSDT", 100, now + 1, { stage: "DUMP", stageAt: now }), now + 1);
+  assert.equal(a.cycles.length, 1);
+  assert.equal(a.cycles[0].stage, "DUMP_REBOUND");
+  assert.equal(a.cycles[0].direction, "SHORT");
+});
+
+function reboundAccount() {
+  const a = newAccount("rebound", "local", "DUMP rebound", "market", 0);
+  const preset = applyDumpReboundPreset(DEFAULT_CONFIG, Object.keys(DEFAULT_CONFIG.stages));
+  const b = createBot(a, { ...preset, mode: "manual", symbol: "XUSDT", guardOn: false, slippageRate: "0" }, 0);
+  command(a, b.id, "start", {}, 0);
+  return { a, b };
+}
+
+test("rebound protection arms only after four fills, survives restart, retries and exits once", () => {
+  const { a, b } = reboundAccount();
+  advance(a, quote("XUSDT", 100, 1000), 1000);
+  advance(a, quote("XUSDT", 104.5, 2000), 2000);
+  advance(a, quote("XUSDT", 109, 3000), 3000);
+  const c = a.cycles[0];
+  command(a, b.id, "pause", {}, 3500);
+  advance(a, quote("XUSDT", 130, 4000), 4000);
+  assert.equal(c.usedSteps, 3);
+  assert.equal(c.recoveryExitArmedAt, undefined);
+
+  command(a, b.id, "resume", {}, 4500);
+  advance(a, quote("XUSDT", 113.5, 5000), 5000);
+  assert.equal(c.usedSteps, 4);
+  assert.equal(c.recoveryExitArmedAt, 5000);
+  assert.ok(Number(c.recoveryExitArmedNet) <= -75);
+
+  const restored = JSON.parse(JSON.stringify(a));
+  const restoredBot = restored.bots.find((x) => x.id === b.id);
+  const restoredCycle = restored.cycles.find((x) => x.id === c.id);
+  const beforeQuantity = Number(restoredCycle.quantity);
+  const invalid = quote("XUSDT", 106, 6000, { bid: "0", ask: "0" });
+  advance(restored, invalid, 6000);
+  assert.equal(restoredCycle.recoveryExitDoneAt, undefined);
+  assert.equal(Number(restoredCycle.quantity), beforeQuantity);
+
+  advance(restored, quote("XUSDT", 106, 7000), 7000);
+  const protectiveFills = restored.fills.filter((f) => f.reason === "RECOVERY_PARTIAL");
+  assert.equal(protectiveFills.length, 1);
+  assert.ok(Math.abs(Number(restoredCycle.quantity) - beforeQuantity / 2) < 1e-10);
+  assert.equal(restoredCycle.recoveryExitDoneAt, 7000);
+  assert.equal(restoredCycle.recoveryExitFillId, protectiveFills[0].id);
+  assert.equal(restoredCycle.dcaLocked, true);
+  assert.equal(restoredCycle.status, "OPEN");
+  assert.deepEqual(restored.stopBlacklist, []);
+  assert.match(restoredBot.lastReason, /50%/);
+
+  advance(restored, quote("XUSDT", 120, 8000), 8000);
+  assert.equal(restored.fills.filter((f) => f.reason === "RECOVERY_PARTIAL").length, 1);
+  assert.equal(restoredCycle.usedSteps, 4);
+
+  advance(restored, quote("XUSDT", 104, 9000), 9000);
+  assert.equal(restoredCycle.status, "CLOSED");
+  assert.equal(restoredCycle.closeReason, "TAKE_PROFIT");
+  assert.ok(Number(restoredCycle.realized) + Number(restoredCycle.funding) - Number(restoredCycle.fees) >= 12.5);
+});
+
+test("funding gaps defer both recovery arming and partial execution", () => {
+  const { a, b } = reboundAccount();
+  advance(a, quote("XUSDT", 100, 1000), 1000);
+  advance(a, quote("XUSDT", 104.5, 2000), 2000);
+  advance(a, quote("XUSDT", 109, 3000), 3000);
+  const c = a.cycles[0];
+  c.config.recoveryExitOn = false;
+  advance(a, quote("XUSDT", 113.5, 4000), 4000);
+  assert.equal(c.usedSteps, 4);
+  assert.equal(c.recoveryExitArmedAt, undefined);
+
+  c.config.recoveryExitOn = true;
+  a.fundingGaps = ["XUSDT:funding"];
+  advance(a, quote("XUSDT", 113.5, 5000), 5000);
+  assert.equal(c.recoveryExitArmedAt, undefined);
+
+  a.fundingGaps = [];
+  advance(a, quote("XUSDT", 113.5, 6000), 6000);
+  assert.equal(c.recoveryExitArmedAt, 6000);
+  command(a, b.id, "update", { ...b.config, recoveryExitPct: "25" }, 6500);
+
+  a.fundingGaps = ["XUSDT:funding"];
+  advance(a, quote("XUSDT", 106, 7000), 7000);
+  assert.equal(c.recoveryExitDoneAt, undefined);
+  assert.equal(a.fills.filter((f) => f.reason === "RECOVERY_PARTIAL").length, 0);
+
+  a.fundingGaps = [];
+  advance(a, quote("XUSDT", 106, 8000, { bid: "0", ask: "0" }), 8000);
+  assert.equal(c.recoveryExitDoneAt, undefined);
+  assert.match(b.lastReason, /25%/);
+  advance(a, quote("XUSDT", 106, 9000), 9000);
+  assert.equal(a.fills.filter((f) => f.reason === "RECOVERY_PARTIAL").length, 1);
+  assert.equal(c.recoveryExitDoneAt, 9000);
+});
+
+test("monetary stop still closes fully while funding reconciliation is pending", () => {
+  const { a, b } = reboundAccount();
+  for (const [time, price_] of [[1000, 100], [2000, 104.5], [3000, 109], [4000, 113.5]]) {
+    advance(a, quote("XUSDT", price_, time), time);
+  }
+  const c = a.cycles[0];
+  assert.equal(c.recoveryExitArmedAt, 4000);
+  command(a, b.id, "update", { ...b.config, slPct: "0.01" }, 4500);
+  a.fundingGaps = ["XUSDT:funding"];
+  const quantity = c.quantity;
+  advance(a, quote("XUSDT", 106.5, 5000), 5000);
+  assert.equal(c.status, "CLOSED");
+  assert.equal(c.closeReason, "STOP_LOSS");
+  assert.equal(a.fills.at(-1).quantity, quantity);
+  assert.equal(a.fills.filter((f) => f.reason === "RECOVERY_PARTIAL").length, 0);
+});
+
+test("DUMP rebound guard stops a multi-level jump immediately after the third fill", () => {
+  const { a } = reboundAccount();
+  const c = () => a.cycles[0];
+  advance(a, quote("XUSDT", 100, 1000), 1000);
+  c().config.guardOn = true;
+  advance(a, quote("XUSDT", 105, 2000), 2000);
+  assert.equal(c().usedSteps, 2);
+  advance(a, quote("XUSDT", 121, 3000), 3000);
+  assert.equal(c().usedSteps, 3);
+  assert.equal(c().dcaLocked, true);
+  assert.equal(c().dcaLockReason, "GUARD");
+});
+
+test("DUMP rebound guard can block the eighth and final order", () => {
+  const { a } = reboundAccount();
+  advance(a, quote("XUSDT", 100, 1000), 1000);
+  const c = a.cycles[0];
+  c.config.guardOn = false;
+  for (let i = 1; i <= 6; i++) advance(a, quote("XUSDT", 100 + 4.5 * i, 1000 + i * 1000), 1000 + i * 1000);
+  assert.equal(c.usedSteps, 7);
+  c.config.guardOn = true;
+  advance(a, quote("XUSDT", 131.5, 8000), 8000);
+  assert.equal(c.usedSteps, 7);
+  assert.equal(c.dcaLocked, true);
+});
+
+test("DUMP rebound hourly stop is rechecked after the third fill on a multi-level jump", () => {
+  const { a } = reboundAccount();
+  advance(a, quote("XUSDT", 100, 3590000), 3590000);
+  advance(a, quote("XUSDT", 105, 3595000), 3595000);
+  const c = a.cycles[0];
+  assert.equal(c.usedSteps, 2);
+  advance(a, quote("XUSDT", 115, 3659999, { accelerationAt: 3600000, accelerationGainPct: 11 }), 3659999);
+  assert.equal(c.usedSteps, 3);
+  assert.equal(c.status, "CLOSED");
+  assert.equal(c.closeReason, "STOP_LOSS");
+  assert.equal(c.protectionTrigger, "ACCEL_1H_10PCT");
+  assert.deepEqual(a.stopBlacklist, ["XUSDT"]);
+});
+
+for (const [priority, patch, price, reason] of [
+  ["stop", { slPct: "0.01" }, 106.5, "STOP_LOSS"],
+  ["take", { tpPct: "0.01" }, 106, "TAKE_PROFIT"],
+]) test(`full ${priority} keeps priority over an armed recovery exit`, () => {
+  const { a, b } = reboundAccount();
+  for (const [time, price_] of [[1000, 100], [2000, 104.5], [3000, 109], [4000, 113.5]]) {
+    advance(a, quote("XUSDT", price_, time), time);
+  }
+  const c = a.cycles[0];
+  assert.equal(c.recoveryExitArmedAt, 4000);
+  command(a, b.id, "update", { ...b.config, ...patch }, 4500);
+  const quantity = c.quantity;
+  advance(a, quote("XUSDT", price, 5000), 5000);
+  assert.equal(c.status, "CLOSED");
+  assert.equal(c.closeReason, reason);
+  assert.equal(a.fills.filter((f) => f.reason === "RECOVERY_PARTIAL").length, 0);
+  assert.equal(a.fills.at(-1).quantity, quantity);
 });

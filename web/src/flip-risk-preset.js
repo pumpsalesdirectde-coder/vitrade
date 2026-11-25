@@ -20,7 +20,7 @@ export function applyFlipRiskPreset(config, equity, strategyKeys, name = config.
     steps: 1, spacingPct: "4.5", entryPct: "75",
     orderPcts: ["25", ...Array(7).fill("4.5")], tpPct: "10", slPct: "15",
     feeRate: "0.00055", slippageRate: "0.0002",
-    marginAuto: false, marginCap: "0", guardOn: false, accelerationStopOn: false,
+    marginAuto: false, marginCap: "0", guardOn: false, accelerationStopOn: false, recoveryExitOn: false,
     fork: { ...config.fork, enabled: false },
     stages: Object.fromEntries(strategyKeys.map((key) => [key, key === "FLIP_RISK"])),
   };
