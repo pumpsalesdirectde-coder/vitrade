@@ -77,7 +77,7 @@ export default function Trades({ account: a }) {
           <p className="muted">Итог = результат по цене + фандинг − комиссии. Для открытых — по текущей цене Bybit.</p>
         </header>
         {tab === "closed" && <div className="seg" role="group" aria-label="Фильтр закрытых сделок">
-          {[["all", "Все"], ["profit", "В плюс"], ["loss", "В минус"]].map(([key, label]) => <button key={key} type="button" aria-pressed={closedFilter === key} onClick={() => setClosedFilter(key)}>{label}</button>)}
+          {[["all", "Все", closed], ["profit", "В плюс", closed.filter((c) => c.total > 0)], ["loss", "В минус", closed.filter((c) => c.total < 0)]].map(([key, label, trades]) => <button key={key} type="button" aria-pressed={closedFilter === key} onClick={() => setClosedFilter(key)}>{label} <span className={tone(sum(trades))}>{signed(sum(trades))}</span></button>)}
         </div>}
         {list.length === 0 ? <p className="empty-line">{tab === "open" ? "Открытых сделок нет." : closed.length === 0 ? "Закрытых сделок пока нет." : "Нет сделок для выбранного фильтра."}</p> : (
           <div className="table-wrap">
