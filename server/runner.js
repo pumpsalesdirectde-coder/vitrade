@@ -196,7 +196,7 @@ export function startRunner(db, fetcher, { offline = false, paperCycles } = {}) 
   };
   t1 = setTimeout(() => void tick(), 0);
   void collect();
-  const t2 = setInterval(() => void collect(), 5e3);
+  const t2 = setInterval(() => void collect(), 15e3);
   return () => {
     stopped = true;
     clearTimeout(t1);
