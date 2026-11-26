@@ -123,7 +123,6 @@ export default function Exchanges({ state, refresh, onPick }) {
             </div>
             {x.status === "ready" && <div className="row-actions">
               {!open && <button className="primary" onClick={() => setOpen(true)}>Открыть paper-счёт</button>}
-              {state.accounts.some((a) => a.exchange === x.id) && <button className="ghost danger-text" onClick={() => removeExchange(x)}>Удалить биржу с ботами</button>}
             </div>}
           </header>
           <p className="muted small">{x.note}</p>
